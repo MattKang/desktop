@@ -47,6 +47,7 @@ interface IRepositoryViewProps {
   readonly imageDiffType: ImageDiffType
   readonly hideWhitespaceInDiff: boolean
   readonly askForConfirmationOnDiscardChanges: boolean
+  readonly isReleaseOwnedLocksOnCommit: boolean
   readonly focusCommitMessage: boolean
   readonly accounts: ReadonlyArray<Account>
 
@@ -194,6 +195,9 @@ export class RepositoryView extends React.Component<
         shouldNudgeToCommit={
           this.props.currentTutorialStep === TutorialStep.MakeCommit
         }
+        isUsingLFS={this.props.state.isUsingLFS}
+        locks={this.props.state.locks}
+        lockingUser={this.props.state.lockingUser}
       />
     )
   }
@@ -378,6 +382,8 @@ export class RepositoryView extends React.Component<
               this.props.externalEditorLabel !== undefined
             }
             dispatcher={this.props.dispatcher}
+            isUsingLFS={this.props.state.isUsingLFS}
+            isReleaseOwnedLocksOnCommit={this.props.isReleaseOwnedLocksOnCommit}
           />
         )
       }
@@ -401,6 +407,8 @@ export class RepositoryView extends React.Component<
           isCommitting={this.props.state.isCommitting}
           imageDiffType={this.props.imageDiffType}
           hideWhitespaceInDiff={this.props.hideWhitespaceInDiff}
+          locks={this.props.state.locks}
+          lockingUser={this.props.state.lockingUser}
         />
       )
     }

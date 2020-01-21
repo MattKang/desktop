@@ -175,6 +175,9 @@ export interface IAppState {
   /** Should the app prompt the user to confirm a force push? */
   readonly askForConfirmationOnForcePush: boolean
 
+  /** Should owned locks be released upon commit? */
+  readonly isReleaseOwnedLocksOnCommit: boolean
+
   /** How the app should handle uncommitted changes when switching branches */
   readonly uncommittedChangesStrategyKind: UncommittedChangesStrategyKind
 
@@ -418,6 +421,15 @@ export interface IRepositoryState {
    * null if no such operation is in flight.
    */
   readonly revertProgress: IRevertProgress | null
+
+  /** True if repository supports Git LFS */
+  readonly isUsingLFS: boolean
+
+  /** File locks for Git LFS */
+  readonly locks: ReadonlyMap<string, string> | null
+
+  /** UI-accessible, cached version of IDatabaseRepository.lockingUser */
+  readonly lockingUser: string | null
 }
 
 export interface IBranchesState {

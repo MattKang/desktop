@@ -524,6 +524,15 @@ export class Dispatcher {
     return this.appStore._fetch(repository, fetchType)
   }
 
+  /** Toggle file lock */
+  public toggleFileLocks(
+    repository: Repository,
+    paths: ReadonlyArray<string>,
+    isLocked: boolean
+  ): Promise<void> {
+    return this.appStore._toggleFileLocks(repository, paths, isLocked)
+  }
+
   /** Publish the repository to GitHub with the given properties. */
   public publishRepository(
     repository: Repository,
@@ -1478,6 +1487,13 @@ export class Dispatcher {
    */
   public setConfirmDiscardChangesSetting(value: boolean): Promise<void> {
     return this.appStore._setConfirmDiscardChangesSetting(value)
+  }
+
+  /**
+   * Sets the user's preference for whether or not to release owned locks when commiting
+   */
+  public setReleaseOwnedLocksOnCommitSetting(value: boolean): Promise<void> {
+    return this.appStore._setReleaseOwnedLocksOnCommitSetting(value)
   }
 
   /**

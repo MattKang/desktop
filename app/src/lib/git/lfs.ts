@@ -1,5 +1,7 @@
-import { git } from './core'
+import { git, gitNetworkArguments, GitError } from './core'
 import { Repository } from '../../models/repository'
+import { IGitAccount } from '../../models/git-account'
+import { envForAuthentication } from './authentication'
 
 /** Install the global LFS filters. */
 export async function installGlobalLFSFilters(force: boolean): Promise<void> {
@@ -97,4 +99,79 @@ export async function filesNotTrackedByLFS(
   }
 
   return filesNotTrackedByGitLFS
+}
+
+/**
+ * Query a Git repository for file locks
+ *
+ * @param repository - The repository from which to push
+ *
+ * @param account - The account to use when authenticating with the remote
+ */
+export async function getFileLocks(
+  repository: Repository,
+  account: IGitAccount | null
+): Promise<ReadonlyMap<string, string>> {
+  const tempLocks = new Map<string, string>()
+
+  // Run Git command
+  const args = ['lfs', 'locks', '--json']
+
+  // THIS IS A MEMORY LEAK IF THE USER IS NOT LOGGED IN BECAUSE ENVIRONMENT VARIABLES ARE NOT PASSED IN TO LFS
+  const result = await git(args, repository.path, 'getFileLocks', {
+    env: envForAuthentication(account),
+  })
+  if (result.gitErrorDescription) {
+    throw new GitError(result, args)
+  } else if (result.stdout === '[]\n') {
+    // empty json
+    return tempLocks
+  }
+
+  // Parse
+  const tempParsed = JSON.parse(result.stdout)
+  const tempLength = tempParsed.length
+  for (let i = 0; i < tempLength; ++i) {
+    tempLocks.set(tempParsed[i].path, tempParsed[i].owner.name)
+  }
+
+  return tempLocks
+}
+
+/**
+ * Toggles file locks
+ *
+ * @param repository - The repository from which to push
+ *
+ * @param account - The account to use when authenticating with the remote
+ *
+ * @param paths - File paths to lock/unlock
+ *
+ * @param isLocked - True if locked, false if unlocked
+ */
+export async function toggleFileLocks(
+  repository: Repository,
+  account: IGitAccount | null,
+  paths: ReadonlyArray<string>,
+  isLocked: boolean
+): Promise<void> {
+  if (paths.length > 0) {
+    const tempEnvironment = { env: envForAuthentication(account) }
+    const networkArguments = await gitNetworkArguments(repository, account)
+    const args = [...networkArguments, 'lfs', isLocked ? 'lock' : 'unlock']
+
+    // From a usability/UI perspective, it makes no sense not to force unlocks... this also resolves weird repo errors
+    if (!isLocked) {
+      args.push('--force')
+    }
+
+    for (let i = paths.length - 1; i >= 0; --i) {
+      await git(
+        [...args, paths[i]],
+        repository.path,
+        'toggleFileLocks',
+        tempEnvironment
+      )
+    }
+  }
 }

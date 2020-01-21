@@ -175,6 +175,11 @@ interface IChangesListProps {
    * arrow pointing at the commit summary box
    */
   readonly shouldNudgeToCommit: boolean
+
+  readonly isPushPullFetchInProgress: boolean
+  readonly isUsingLFS: boolean
+  readonly locks: ReadonlyMap<string, string> | null
+  readonly lockingUser: string | null
 }
 
 interface IChangesState {
@@ -256,6 +261,12 @@ export class ChangesList extends React.Component<
     return (
       <ChangedFile
         file={file}
+        lockOwner={
+          this.props.locks == null
+            ? null
+            : this.props.locks.get(file.path) || null
+        }
+        lockingUser={this.props.lockingUser}
         include={include}
         key={file.id}
         onContextMenu={this.onItemContextMenu}
@@ -348,6 +359,184 @@ export class ChangesList extends React.Component<
     }
   }
 
+  private getIgnoreChangesMenuItem = (
+    paths: ReadonlyArray<string>
+  ): IMenuItem => {
+    // Single file
+    if (paths.length === 1) {
+      return {
+        label: __DARWIN__
+          ? 'Ignore File (Add to .gitignore)'
+          : 'Ignore file (add to .gitignore)',
+        action: () => this.props.onIgnore(paths[0]),
+        enabled: Path.basename(paths[0]) !== GitIgnoreFileName,
+      }
+    }
+
+    // Multiple files
+    return {
+      label: __DARWIN__
+        ? `Ignore ${paths.length} Selected Files (Add to .gitignore)`
+        : `Ignore ${paths.length} selected files (add to .gitignore)`,
+      action: () => {
+        // Filter out any .gitignores that happens to be selected, ignoring
+        // those doesn't make sense.
+        this.props.onIgnore(
+          paths.filter(path => Path.basename(path) !== GitIgnoreFileName)
+        )
+      },
+      // Enable this action as long as there's something selected which isn't
+      // a .gitignore file.
+      enabled: paths.some(path => Path.basename(path) !== GitIgnoreFileName),
+    }
+  }
+
+  private getIgnoreExtensionsMenuItems = (
+    extensions: Set<string>
+  ): ReadonlyArray<IMenuItem> => {
+    const items: IMenuItem[] = []
+
+    Array.from(extensions)
+      .slice(0, 5)
+      .forEach(extension => {
+        items.push({
+          label: __DARWIN__
+            ? `Ignore All ${extension} Files (Add to .gitignore)`
+            : `Ignore all ${extension} files (add to .gitignore)`,
+          action: () => this.props.onIgnore(`*${extension}`),
+        })
+      })
+
+    return items
+  }
+
+  private getFileLockMenuItems = (
+    paths: ReadonlyArray<string>
+  ): ReadonlyArray<IMenuItem> => {
+    // Single
+    if (paths.length === 1) {
+      // Lockable
+      let tempOwner =
+        this.props.locks == null ? null : this.props.locks.get(paths[0])
+      if (tempOwner == null) {
+        return [
+          {
+            label: __DARWIN__ ? 'Lock File' : 'Lock file',
+            action: () =>
+              this.props.dispatcher.toggleFileLocks(
+                this.props.repository,
+                paths,
+                true
+              ),
+            enabled: !this.props.isPushPullFetchInProgress,
+          },
+        ]
+      }
+
+      // Unlockable (owned)
+      if (tempOwner === this.props.lockingUser) {
+        return [
+          {
+            label: __DARWIN__ ? 'Unlock File' : 'Unlock file',
+            action: () =>
+              this.props.dispatcher.toggleFileLocks(
+                this.props.repository,
+                paths,
+                false
+              ),
+            enabled: !this.props.isPushPullFetchInProgress,
+          },
+        ]
+      }
+
+      // Force unlockable (not owned)
+      if (tempOwner.length > 15) {
+        // limit string length
+        tempOwner = tempOwner.substring(0, 15) + '...'
+      }
+
+      let tempLabel = __DARWIN__ ? 'Force Unlock File' : 'Force unlock file'
+      tempLabel += ' (locked by: ' + tempOwner + ')'
+
+      return [
+        {
+          label: tempLabel,
+          action: () =>
+            this.props.dispatcher.toggleFileLocks(
+              this.props.repository,
+              paths,
+              false
+            ),
+          enabled: !this.props.isPushPullFetchInProgress,
+        },
+      ]
+    }
+
+    // Multiple, calculate possible states of all files
+    let tempLockables: Array<string> = []
+    const tempUnlockables: Array<string> = []
+    const tempForceUnlockables: Array<string> = []
+
+    if (this.props.locks == null) {
+      tempLockables = paths as Array<string>
+    } else {
+      for (let i = paths.length - 1; i >= 0; --i) {
+        const tempOwner =
+          this.props.locks == null ? null : this.props.locks.get(paths[i])
+        if (tempOwner == null) {
+          tempLockables.push(paths[i])
+        } else if (tempOwner === this.props.lockingUser) {
+          tempUnlockables.push(paths[i])
+        } else {
+          tempForceUnlockables.push(paths[i])
+        }
+      }
+    }
+
+    return [
+      {
+        label: __DARWIN__
+          ? `Lock ${tempLockables.length} Selected Files`
+          : `Lock ${tempLockables.length} selected files`,
+        action: () =>
+          this.props.dispatcher.toggleFileLocks(
+            this.props.repository,
+            tempLockables,
+            true
+          ),
+        enabled:
+          !this.props.isPushPullFetchInProgress && tempLockables.length > 0,
+      },
+      {
+        label: __DARWIN__
+          ? `Unlock ${tempUnlockables.length} Selected Files`
+          : `Unlock ${tempUnlockables.length} selected files`,
+        action: () =>
+          this.props.dispatcher.toggleFileLocks(
+            this.props.repository,
+            tempUnlockables,
+            false
+          ),
+        enabled:
+          !this.props.isPushPullFetchInProgress && tempUnlockables.length > 0,
+      },
+      {
+        label: __DARWIN__
+          ? `Force Unlock ${tempForceUnlockables.length} Selected Files`
+          : `Force unlock ${tempForceUnlockables.length} selected files`,
+        action: () =>
+          this.props.dispatcher.toggleFileLocks(
+            this.props.repository,
+            tempForceUnlockables,
+            false
+          ),
+        enabled:
+          !this.props.isPushPullFetchInProgress &&
+          tempForceUnlockables.length > 0,
+      },
+    ]
+  }
+
   private getCopyPathMenuItem = (
     file: WorkingDirectoryFileChange
   ): IMenuItem => {
@@ -396,9 +585,11 @@ export class ChangesList extends React.Component<
     const { id, path, status } = file
 
     const extension = Path.extname(path)
-    const isSafeExtension = isSafeFileExtension(extension)
+    const enabled =
+      isSafeFileExtension(extension) &&
+      status.kind !== AppFileStatusKind.Deleted
 
-    const { workingDirectory, selectedFileIDs } = this.props
+    const { workingDirectory, selectedFileIDs, isUsingLFS } = this.props
 
     const selectedFiles = new Array<WorkingDirectoryFileChange>()
     const paths = new Array<string>()
@@ -427,48 +618,19 @@ export class ChangesList extends React.Component<
       addItemToArray(id)
     }
 
-    const items: IMenuItem[] = [
+    let items: IMenuItem[] = [
       this.getDiscardChangesMenuItem(paths),
       { type: 'separator' },
+      this.getIgnoreChangesMenuItem(paths),
     ]
-    if (paths.length === 1) {
-      items.push({
-        label: __DARWIN__
-          ? 'Ignore File (Add to .gitignore)'
-          : 'Ignore file (add to .gitignore)',
-        action: () => this.props.onIgnore(path),
-        enabled: Path.basename(path) !== GitIgnoreFileName,
-      })
-    } else if (paths.length > 1) {
-      items.push({
-        label: __DARWIN__
-          ? `Ignore ${paths.length} Selected Files (Add to .gitignore)`
-          : `Ignore ${paths.length} selected files (add to .gitignore)`,
-        action: () => {
-          // Filter out any .gitignores that happens to be selected, ignoring
-          // those doesn't make sense.
-          this.props.onIgnore(
-            paths.filter(path => Path.basename(path) !== GitIgnoreFileName)
-          )
-        },
-        // Enable this action as long as there's something selected which isn't
-        // a .gitignore file.
-        enabled: paths.some(path => Path.basename(path) !== GitIgnoreFileName),
-      })
-    }
-    // Five menu items should be enough for everyone
-    Array.from(extensions)
-      .slice(0, 5)
-      .forEach(extension => {
-        items.push({
-          label: __DARWIN__
-            ? `Ignore All ${extension} Files (Add to .gitignore)`
-            : `Ignore all ${extension} files (add to .gitignore)`,
-          action: () => this.props.onIgnore(`*${extension}`),
-        })
-      })
 
-    const enabled = isSafeExtension && status.kind !== AppFileStatusKind.Deleted
+    items = items.concat(this.getIgnoreExtensionsMenuItems(extensions))
+
+    // Git LFS file locks
+    if (isUsingLFS) {
+      items.push({ type: 'separator' })
+      items = items.concat(this.getFileLockMenuItems(paths))
+    }
 
     items.push(
       { type: 'separator' },
@@ -736,7 +898,7 @@ export class ChangesList extends React.Component<
           selectedRows={this.state.selectedRows}
           selectionMode="multi"
           onSelectionChanged={this.props.onFileSelectionChanged}
-          invalidationProps={this.props.workingDirectory}
+          invalidationProps={[this.props.workingDirectory, this.props.locks]}
           onRowClick={this.props.onRowClick}
           onScroll={this.onScroll}
           setScrollTop={this.props.changesListScrollTop}

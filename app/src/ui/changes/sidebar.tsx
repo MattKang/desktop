@@ -74,6 +74,10 @@ interface IChangesSidebarProps {
    * arrow pointing at the commit summary box
    */
   readonly shouldNudgeToCommit: boolean
+
+  readonly isUsingLFS: boolean
+  readonly locks: ReadonlyMap<string, string> | null
+  readonly lockingUser: string | null
 }
 
 export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
@@ -425,6 +429,10 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
           isShowingStashEntry={isShowingStashEntry}
           currentBranchProtected={currentBranchProtected}
           shouldNudgeToCommit={this.props.shouldNudgeToCommit}
+          isPushPullFetchInProgress={this.props.isPushPullFetchInProgress}
+          isUsingLFS={this.props.isUsingLFS}
+          locks={this.props.locks}
+          lockingUser={this.props.lockingUser}
         />
         {this.renderUndoCommit(rebaseConflictState)}
       </div>

@@ -692,6 +692,7 @@ export class App extends React.Component<IAppProps, IAppState> {
     }
 
     const account = this.getDotComAccount() || this.getEnterpriseAccount()
+    console.log(account)
 
     if (account === null) {
       return
@@ -2479,6 +2480,7 @@ export class App extends React.Component<IAppProps, IAppState> {
           askForConfirmationOnDiscardChanges={
             state.askForConfirmationOnDiscardChanges
           }
+          isReleaseOwnedLocksOnCommit={state.isReleaseOwnedLocksOnCommit}
           accounts={state.accounts}
           externalEditorLabel={externalEditorLabel}
           resolvedExternalEditor={state.resolvedExternalEditor}
