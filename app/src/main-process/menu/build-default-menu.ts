@@ -1,26 +1,30 @@
-import { Menu, ipcMain, shell, app } from 'electron'
+import { Menu, shell, app, BrowserWindow } from 'electron'
 import { ensureItemIds } from './ensure-item-ids'
 import { MenuEvent } from './menu-event'
 import { truncateWithEllipsis } from '../../lib/truncate-with-ellipsis'
 import { getLogDirectoryPath } from '../../lib/logging/get-log-path'
-import { ensureDir } from 'fs-extra'
-import { openDirectorySafe } from '../shell'
-import { enableRebaseDialog, enableStashing } from '../../lib/feature-flag'
+import { UNSAFE_openDirectory } from '../shell'
 import { MenuLabelsEvent } from '../../models/menu-labels'
-import { DefaultEditorLabel } from '../../ui/lib/context-menu'
+import { enableSquashMerging } from '../../lib/feature-flag'
+import * as ipcWebContents from '../ipc-webcontents'
+import { mkdir } from 'fs/promises'
 
-const defaultShellLabel = __DARWIN__
-  ? 'Open in Terminal'
-  : 'Open in Command Prompt'
+const platformDefaultShell = __WIN32__ ? 'Command Prompt' : 'Terminal'
 const createPullRequestLabel = __DARWIN__
   ? 'Create Pull Request'
   : 'Create &pull request'
 const showPullRequestLabel = __DARWIN__
-  ? 'Show Pull Request'
-  : 'Show &pull request'
+  ? 'View Pull Request on GitHub'
+  : 'View &pull request on GitHub'
 const defaultBranchNameValue = __DARWIN__ ? 'Default Branch' : 'default branch'
 const confirmRepositoryRemovalLabel = __DARWIN__ ? 'Remove…' : '&Remove…'
 const repositoryRemovalLabel = __DARWIN__ ? 'Remove' : '&Remove'
+const confirmStashAllChangesLabel = __DARWIN__
+  ? 'Stash All Changes…'
+  : '&Stash all changes…'
+const stashAllChangesLabel = __DARWIN__
+  ? 'Stash All Changes'
+  : '&Stash all changes'
 
 enum ZoomDirection {
   Reset,
@@ -37,6 +41,7 @@ export function buildDefaultMenu({
   defaultBranchName = defaultBranchNameValue,
   isForcePushForCurrentRepository = false,
   isStashedChangesVisible = false,
+  askForConfirmationWhenStashingAllChanges = true,
 }: MenuLabelsEvent): Electron.Menu {
   defaultBranchName = truncateWithEllipsis(defaultBranchName, 25)
 
@@ -47,14 +52,6 @@ export function buildDefaultMenu({
   const pullRequestLabel = hasCurrentPullRequest
     ? showPullRequestLabel
     : createPullRequestLabel
-
-  const shellLabel =
-    selectedShell === null ? defaultShellLabel : `Open in ${selectedShell}`
-
-  const editorLabel =
-    selectedExternalEditor === null
-      ? DefaultEditorLabel
-      : `Open in ${selectedExternalEditor}`
 
   const template = new Array<Electron.MenuItemConstructorOptions>()
   const separator: Electron.MenuItemConstructorOptions = { type: 'separator' }
@@ -88,7 +85,7 @@ export function buildDefaultMenu({
         },
         separator,
         { role: 'hide' },
-        { role: 'hideothers' },
+        { role: 'hideOthers' },
         { role: 'unhide' },
         separator,
         { role: 'quit' },
@@ -208,7 +205,6 @@ export function buildDefaultMenu({
         click: isStashedChangesVisible
           ? emit('hide-stashed-changes')
           : emit('show-stashed-changes'),
-        visible: enableStashing(),
       },
       {
         label: __DARWIN__ ? 'Toggle Full Screen' : 'Toggle &full screen',
@@ -239,7 +235,7 @@ export function buildDefaultMenu({
         // chorded shortcuts, but this menu item is not a user-facing feature
         // so we are going to keep this one around.
         accelerator: 'CmdOrCtrl+Alt+R',
-        click(item: any, focusedWindow: Electron.BrowserWindow) {
+        click(item: any, focusedWindow: Electron.BrowserWindow | undefined) {
           if (focusedWindow) {
             focusedWindow.reload()
           }
@@ -254,7 +250,7 @@ export function buildDefaultMenu({
         accelerator: (() => {
           return __DARWIN__ ? 'Alt+Command+I' : 'Ctrl+Shift+I'
         })(),
-        click(item: any, focusedWindow: Electron.BrowserWindow) {
+        click(item: any, focusedWindow: Electron.BrowserWindow | undefined) {
           if (focusedWindow) {
             focusedWindow.webContents.toggleDevTools()
           }
@@ -300,7 +296,9 @@ export function buildDefaultMenu({
         click: emit('view-repository-on-github'),
       },
       {
-        label: shellLabel,
+        label: __DARWIN__
+          ? `Open in ${selectedShell ?? platformDefaultShell}`
+          : `O&pen in ${selectedShell ?? platformDefaultShell}`,
         id: 'open-in-shell',
         accelerator: 'Ctrl+`',
         click: emit('open-in-shell'),
@@ -316,10 +314,21 @@ export function buildDefaultMenu({
         click: emit('open-working-directory'),
       },
       {
-        label: editorLabel,
+        label: __DARWIN__
+          ? `Open in ${selectedExternalEditor ?? 'External Editor'}`
+          : `&Open in ${selectedExternalEditor ?? 'external editor'}`,
         id: 'open-external-editor',
         accelerator: 'CmdOrCtrl+Shift+A',
         click: emit('open-external-editor'),
+      },
+      separator,
+      {
+        id: 'create-issue-in-repository-on-github',
+        label: __DARWIN__
+          ? 'Create Issue on GitHub'
+          : 'Create &issue on GitHub',
+        accelerator: 'CmdOrCtrl+I',
+        click: emit('create-issue-in-repository-on-github'),
       },
       separator,
       {
@@ -330,81 +339,108 @@ export function buildDefaultMenu({
     ],
   })
 
+  const branchSubmenu = [
+    {
+      label: __DARWIN__ ? 'New Branch…' : 'New &branch…',
+      id: 'create-branch',
+      accelerator: 'CmdOrCtrl+Shift+N',
+      click: emit('create-branch'),
+    },
+    {
+      label: __DARWIN__ ? 'Rename…' : '&Rename…',
+      id: 'rename-branch',
+      accelerator: 'CmdOrCtrl+Shift+R',
+      click: emit('rename-branch'),
+    },
+    {
+      label: __DARWIN__ ? 'Delete…' : '&Delete…',
+      id: 'delete-branch',
+      accelerator: 'CmdOrCtrl+Shift+D',
+      click: emit('delete-branch'),
+    },
+    separator,
+    {
+      label: __DARWIN__ ? 'Discard All Changes…' : 'Discard all changes…',
+      id: 'discard-all-changes',
+      accelerator: 'CmdOrCtrl+Shift+Backspace',
+      click: emit('discard-all-changes'),
+    },
+    {
+      label: askForConfirmationWhenStashingAllChanges
+        ? confirmStashAllChangesLabel
+        : stashAllChangesLabel,
+      id: 'stash-all-changes',
+      accelerator: 'CmdOrCtrl+Shift+S',
+      click: emit('stash-all-changes'),
+    },
+    separator,
+    {
+      label: __DARWIN__
+        ? `Update from ${defaultBranchName}`
+        : `&Update from ${defaultBranchName}`,
+      id: 'update-branch',
+      accelerator: 'CmdOrCtrl+Shift+U',
+      click: emit('update-branch'),
+    },
+    {
+      label: __DARWIN__ ? 'Compare to Branch' : '&Compare to branch',
+      id: 'compare-to-branch',
+      accelerator: 'CmdOrCtrl+Shift+B',
+      click: emit('compare-to-branch'),
+    },
+    {
+      label: __DARWIN__
+        ? 'Merge into Current Branch…'
+        : '&Merge into current branch…',
+      id: 'merge-branch',
+      accelerator: 'CmdOrCtrl+Shift+M',
+      click: emit('merge-branch'),
+    },
+  ]
+
+  if (enableSquashMerging()) {
+    branchSubmenu.push({
+      label: __DARWIN__
+        ? 'Squash and Merge into Current Branch…'
+        : 'Squas&h and merge into current branch…',
+      id: 'squash-and-merge-branch',
+      accelerator: 'CmdOrCtrl+Shift+H',
+      click: emit('squash-and-merge-branch'),
+    })
+  }
+
+  branchSubmenu.push(
+    {
+      label: __DARWIN__ ? 'Rebase Current Branch…' : 'R&ebase current branch…',
+      id: 'rebase-branch',
+      accelerator: 'CmdOrCtrl+Shift+E',
+      click: emit('rebase-branch'),
+    },
+    separator,
+    {
+      label: __DARWIN__ ? 'Compare on GitHub' : 'Compare on &GitHub',
+      id: 'compare-on-github',
+      accelerator: 'CmdOrCtrl+Shift+C',
+      click: emit('compare-on-github'),
+    },
+    {
+      label: __DARWIN__ ? 'View Branch on GitHub' : 'View branch on GitHub',
+      id: 'branch-on-github',
+      accelerator: 'CmdOrCtrl+Alt+B',
+      click: emit('branch-on-github'),
+    },
+    {
+      label: pullRequestLabel,
+      id: 'create-pull-request',
+      accelerator: 'CmdOrCtrl+R',
+      click: emit('open-pull-request'),
+    }
+  )
+
   template.push({
     label: __DARWIN__ ? 'Branch' : '&Branch',
     id: 'branch',
-    submenu: [
-      {
-        label: __DARWIN__ ? 'New Branch…' : 'New &branch…',
-        id: 'create-branch',
-        accelerator: 'CmdOrCtrl+Shift+N',
-        click: emit('create-branch'),
-      },
-      {
-        label: __DARWIN__ ? 'Rename…' : '&Rename…',
-        id: 'rename-branch',
-        accelerator: 'CmdOrCtrl+Shift+R',
-        click: emit('rename-branch'),
-      },
-      {
-        label: __DARWIN__ ? 'Delete…' : '&Delete…',
-        id: 'delete-branch',
-        accelerator: 'CmdOrCtrl+Shift+D',
-        click: emit('delete-branch'),
-      },
-      separator,
-      {
-        label: __DARWIN__ ? 'Discard All Changes…' : 'Discard all changes…',
-        id: 'discard-all-changes',
-        accelerator: 'CmdOrCtrl+Shift+Backspace',
-        click: emit('discard-all-changes'),
-      },
-      separator,
-      {
-        label: __DARWIN__
-          ? `Update from ${defaultBranchName}`
-          : `&Update from ${defaultBranchName}`,
-        id: 'update-branch',
-        accelerator: 'CmdOrCtrl+Shift+U',
-        click: emit('update-branch'),
-      },
-      {
-        label: __DARWIN__ ? 'Compare to Branch' : '&Compare to branch',
-        id: 'compare-to-branch',
-        accelerator: 'CmdOrCtrl+Shift+B',
-        click: emit('compare-to-branch'),
-      },
-      {
-        label: __DARWIN__
-          ? 'Merge into Current Branch…'
-          : '&Merge into current branch…',
-        id: 'merge-branch',
-        accelerator: 'CmdOrCtrl+Shift+M',
-        click: emit('merge-branch'),
-      },
-      {
-        label: __DARWIN__
-          ? 'Rebase Current Branch…'
-          : 'R&ebase current branch…',
-        id: 'rebase-branch',
-        accelerator: 'CmdOrCtrl+Shift+E',
-        click: emit('rebase-branch'),
-        visible: enableRebaseDialog(),
-      },
-      separator,
-      {
-        label: __DARWIN__ ? 'Compare on GitHub' : 'Compare on &GitHub',
-        id: 'compare-on-github',
-        accelerator: 'CmdOrCtrl+Shift+C',
-        click: emit('compare-on-github'),
-      },
-      {
-        label: pullRequestLabel,
-        id: 'create-pull-request',
-        accelerator: 'CmdOrCtrl+R',
-        click: emit('open-pull-request'),
-      },
-    ],
+    submenu: branchSubmenu,
   })
 
   if (__DARWIN__) {
@@ -444,7 +480,7 @@ export function buildDefaultMenu({
     label: 'Show User Guides',
     click() {
       shell
-        .openExternal('https://help.github.com/desktop/guides/')
+        .openExternal('https://docs.github.com/en/desktop')
         .catch(err => log.error('Failed opening user guides page', err))
     },
   }
@@ -454,7 +490,7 @@ export function buildDefaultMenu({
     click() {
       shell
         .openExternal(
-          'https://help.github.com/en/desktop/getting-started-with-github-desktop/keyboard-shortcuts-in-github-desktop'
+          'https://docs.github.com/en/desktop/installing-and-configuring-github-desktop/overview/keyboard-shortcuts'
         )
         .catch(err => log.error('Failed opening keyboard shortcuts page', err))
     },
@@ -470,13 +506,9 @@ export function buildDefaultMenu({
     label: showLogsLabel,
     click() {
       const logPath = getLogDirectoryPath()
-      ensureDir(logPath)
-        .then(() => {
-          openDirectorySafe(logPath)
-        })
-        .catch(err => {
-          log.error('Failed opening logs directory', err)
-        })
+      mkdir(logPath, { recursive: true })
+        .then(() => UNSAFE_openDirectory(logPath))
+        .catch(err => log.error('Failed opening logs directory', err))
     },
   }
 
@@ -508,6 +540,10 @@ export function buildDefaultMenu({
             label: 'Release notes',
             click: emit('show-release-notes-popup'),
           },
+          {
+            label: 'Pull Request Check Run Failed',
+            click: emit('pull-request-check-run-failed'),
+          },
         ],
       },
       {
@@ -515,6 +551,13 @@ export function buildDefaultMenu({
         click: emit('test-prune-branches'),
       }
     )
+  }
+
+  if (__RELEASE_CHANNEL__ === 'development' || __RELEASE_CHANNEL__ === 'test') {
+    helpItems.push({
+      label: 'Show notification',
+      click: emit('test-show-notification'),
+    })
   }
 
   if (__DARWIN__) {
@@ -567,8 +610,8 @@ function getStashedChangesLabel(isStashedChangesVisible: boolean): string {
 
 type ClickHandler = (
   menuItem: Electron.MenuItem,
-  browserWindow: Electron.BrowserWindow,
-  event: Electron.Event
+  browserWindow: Electron.BrowserWindow | undefined,
+  event: Electron.KeyboardEvent
 ) => void
 
 /**
@@ -576,11 +619,15 @@ type ClickHandler = (
  * the provided menu event over IPC.
  */
 function emit(name: MenuEvent): ClickHandler {
-  return (menuItem, window) => {
-    if (window) {
-      window.webContents.send('menu-event', { name })
-    } else {
-      ipcMain.emit('menu-event', { name })
+  return (_, focusedWindow) => {
+    // focusedWindow can be null if the menu item was clicked without the window
+    // being in focus. A simple way to reproduce this is to click on a menu item
+    // while in DevTools. Since Desktop only supports one window at a time we
+    // can be fairly certain that the first BrowserWindow we find is the one we
+    // want.
+    const window = focusedWindow ?? BrowserWindow.getAllWindows()[0]
+    if (window !== undefined) {
+      ipcWebContents.send(window.webContents, 'menu-event', name)
     }
   }
 }
@@ -614,15 +661,15 @@ function zoom(direction: ZoomDirection): ClickHandler {
     const { webContents } = window
 
     if (direction === ZoomDirection.Reset) {
-      webContents.setZoomFactor(1)
-      webContents.send('zoom-factor-changed', 1)
+      webContents.zoomFactor = 1
+      ipcWebContents.send(webContents, 'zoom-factor-changed', 1)
     } else {
-      const rawZoom = webContents.getZoomFactor()
+      const rawZoom = webContents.zoomFactor
       const zoomFactors =
         direction === ZoomDirection.In ? ZoomInFactors : ZoomOutFactors
 
-      // So the values that we get from getZoomFactor are floating point
-      // precision numbers from chromium that don't always round nicely so
+      // So the values that we get from zoomFactor property are floating point
+      // precision numbers from chromium, that don't always round nicely, so
       // we'll have to do a little trick to figure out which of our supported
       // zoom factors the value is referring to.
       const currentZoom = findClosestValue(zoomFactors, rawZoom)
@@ -636,8 +683,8 @@ function zoom(direction: ZoomDirection): ClickHandler {
       // factor we've got.
       const newZoom = nextZoomLevel === undefined ? currentZoom : nextZoomLevel
 
-      webContents.setZoomFactor(newZoom)
-      webContents.send('zoom-factor-changed', newZoom)
+      webContents.zoomFactor = newZoom
+      ipcWebContents.send(webContents, 'zoom-factor-changed', newZoom)
     }
   }
 }

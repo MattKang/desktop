@@ -4,10 +4,12 @@ import { FileList } from '../history/file-list'
 import { Dispatcher } from '../dispatcher'
 import { CommittedFileChange } from '../../models/status'
 import { Repository } from '../../models/repository'
-import { Diff } from '../diff'
 import { IDiff, ImageDiffType } from '../../models/diff'
 import { Resizable } from '../resizable'
 import { StashDiffHeader } from './stash-diff-header'
+import { SeamlessDiffSwitcher } from '../diff/seamless-diff-switcher'
+import { IConstrainedValue } from '../../lib/app-state'
+import { clamp } from '../../lib/clamp'
 
 interface IStashDiffViewerProps {
   /** The stash in question. */
@@ -21,12 +23,30 @@ interface IStashDiffViewerProps {
   readonly imageDiffType: ImageDiffType
 
   /** width to use for the files list pane */
-  readonly fileListWidth: number
+  readonly fileListWidth: IConstrainedValue
   readonly repository: Repository
   readonly dispatcher: Dispatcher
 
+  /** Whether we should display side by side diffs. */
+  readonly showSideBySideDiff: boolean
+
   /** Are there any uncommitted changes */
   readonly isWorkingTreeClean: boolean
+
+  /**
+   * Called when the user requests to open a binary file in an the
+   * system-assigned application for said file type.
+   */
+  readonly onOpenBinaryFile: (fullPath: string) => void
+
+  /**
+   * Called when the user is viewing an image diff and requests
+   * to change the diff presentation mode.
+   */
+  readonly onChangeImageDiffType: (type: ImageDiffType) => void
+
+  /** Called when the user changes the hide whitespace in diffs setting. */
+  readonly onHideWhitespaceInDiffChanged: (checked: boolean) => void
 }
 
 /**
@@ -34,9 +54,7 @@ interface IStashDiffViewerProps {
  *
  * _(Like viewing a selected commit in history but for a stash)_
  */
-export class StashDiffViewer extends React.PureComponent<
-  IStashDiffViewerProps
-> {
+export class StashDiffViewer extends React.PureComponent<IStashDiffViewerProps> {
   private onSelectedFileChanged = (file: CommittedFileChange) =>
     this.props.dispatcher.selectStashedFile(this.props.repository, file)
 
@@ -55,6 +73,8 @@ export class StashDiffViewer extends React.PureComponent<
       imageDiffType,
       isWorkingTreeClean,
       fileListWidth,
+      onOpenBinaryFile,
+      onChangeImageDiffType,
     } = this.props
     const files =
       stashEntry.files.kind === StashedChangesLoadStates.Loaded
@@ -62,17 +82,24 @@ export class StashDiffViewer extends React.PureComponent<
         : new Array<CommittedFileChange>()
 
     const diffComponent =
-      selectedStashedFile !== null && stashedFileDiff !== null ? (
-        <Diff
+      selectedStashedFile !== null ? (
+        <SeamlessDiffSwitcher
           repository={repository}
           readOnly={true}
           file={selectedStashedFile}
           diff={stashedFileDiff}
-          dispatcher={dispatcher}
           imageDiffType={imageDiffType}
           hideWhitespaceInDiff={false}
+          showSideBySideDiff={this.props.showSideBySideDiff}
+          onOpenBinaryFile={onOpenBinaryFile}
+          onChangeImageDiffType={onChangeImageDiffType}
+          onHideWhitespaceInDiffChanged={
+            this.props.onHideWhitespaceInDiffChanged
+          }
         />
       ) : null
+
+    const availableWidth = clamp(fileListWidth)
 
     return (
       <section id="stash-diff-viewer">
@@ -84,7 +111,9 @@ export class StashDiffViewer extends React.PureComponent<
         />
         <div className="commit-details">
           <Resizable
-            width={this.props.fileListWidth}
+            width={fileListWidth.value}
+            minimumWidth={fileListWidth.min}
+            maximumWidth={fileListWidth.max}
             onResize={this.onResize}
             onReset={this.onReset}
           >
@@ -92,7 +121,7 @@ export class StashDiffViewer extends React.PureComponent<
               files={files}
               onSelectedFileChanged={this.onSelectedFileChanged}
               selectedFile={selectedStashedFile}
-              availableWidth={fileListWidth}
+              availableWidth={availableWidth}
             />
           </Resizable>
           {diffComponent}

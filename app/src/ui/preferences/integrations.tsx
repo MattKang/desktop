@@ -3,27 +3,20 @@ import { DialogContent } from '../dialog'
 import { LinkButton } from '../lib/link-button'
 import { Row } from '../../ui/lib/row'
 import { Select } from '../lib/select'
-import { ExternalEditor, parse as parseEditor } from '../../lib/editors'
 import { Shell, parse as parseShell } from '../../lib/shells'
-import { TextBox } from '../lib/text-box'
-import { enableMergeTool } from '../../lib/feature-flag'
-import { IMergeTool } from '../../lib/git/config'
+import { suggestedExternalEditor } from '../../lib/editors/shared'
 
 interface IIntegrationsPreferencesProps {
-  readonly availableEditors: ReadonlyArray<ExternalEditor>
-  readonly selectedExternalEditor: ExternalEditor | null
+  readonly availableEditors: ReadonlyArray<string>
+  readonly selectedExternalEditor: string | null
   readonly availableShells: ReadonlyArray<Shell>
   readonly selectedShell: Shell
-  readonly onSelectedEditorChanged: (editor: ExternalEditor) => void
+  readonly onSelectedEditorChanged: (editor: string) => void
   readonly onSelectedShellChanged: (shell: Shell) => void
-
-  readonly mergeTool: IMergeTool | null
-  readonly onMergeToolNameChanged: (name: string) => void
-  readonly onMergeToolCommandChanged: (command: string) => void
 }
 
 interface IIntegrationsPreferencesState {
-  readonly selectedExternalEditor: ExternalEditor | null
+  readonly selectedExternalEditor: string | null
   readonly selectedShell: Shell
 }
 
@@ -74,7 +67,7 @@ export class Integrations extends React.Component<
   private onSelectedEditorChanged = (
     event: React.FormEvent<HTMLSelectElement>
   ) => {
-    const value = parseEditor(event.currentTarget.value)
+    const value = event.currentTarget.value
     if (value) {
       this.setState({ selectedExternalEditor: value })
       this.props.onSelectedEditorChanged(value)
@@ -105,7 +98,9 @@ export class Integrations extends React.Component<
           <label>{label}</label>
           <span>
             No editors found.{' '}
-            <LinkButton uri="https://atom.io/">Install Atom?</LinkButton>
+            <LinkButton uri={suggestedExternalEditor.url}>
+              Install {suggestedExternalEditor.name}?
+            </LinkButton>
           </span>
         </div>
       )
@@ -125,7 +120,6 @@ export class Integrations extends React.Component<
       </Select>
     )
   }
-
   private renderSelectedShell() {
     const options = this.props.availableShells
 
@@ -144,43 +138,12 @@ export class Integrations extends React.Component<
     )
   }
 
-  private renderMergeTool() {
-    if (!enableMergeTool()) {
-      return null
-    }
-
-    const mergeTool = this.props.mergeTool
-
-    return (
-      <div className="brutalism">
-        <strong>{__DARWIN__ ? 'Merge Tool' : 'Merge tool'}</strong>
-
-        <Row>
-          <TextBox
-            placeholder="Name"
-            value={mergeTool ? mergeTool.name : ''}
-            onValueChanged={this.props.onMergeToolNameChanged}
-          />
-        </Row>
-
-        <Row>
-          <TextBox
-            placeholder="Command"
-            value={mergeTool && mergeTool.command ? mergeTool.command : ''}
-            onValueChanged={this.props.onMergeToolCommandChanged}
-          />
-        </Row>
-      </div>
-    )
-  }
-
   public render() {
     return (
       <DialogContent>
         <h2>Applications</h2>
         <Row>{this.renderExternalEditor()}</Row>
         <Row>{this.renderSelectedShell()}</Row>
-        {this.renderMergeTool()}
       </DialogContent>
     )
   }

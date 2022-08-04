@@ -56,7 +56,7 @@ If you've made changes in the `main-process` folder you need to run `yarn
 build:dev` to rebuild the package, and then `yarn start` for these changes to be
 reflected in the running app.
 
-If you are using GitHub Enterprise Server with your development build of GitHub Desktop, you will need to follow a few extra steps to [authenticate properly](github-enterprise-auth-from-dev-build.md).
+If you are using GitHub Enterprise with your development build of GitHub Desktop, you will need to follow a few extra steps to [authenticate properly](github-enterprise-auth-from-dev-build.md).
 
 If you're still encountering issues with building, refer to our
 [troubleshooting](troubleshooting.md) guide for more common
@@ -69,7 +69,6 @@ problems.
   - Add `<file>` or `<pattern>` argument to only run tests in the specified file or files matching a pattern
   - Add `-t <regex>` to only match tests whose name matches a regex
   - For more information on these and other arguments, see [Jest CLI options](https://jestjs.io/docs/en/23.x/cli)
-- `yarn test:integration` - Runs all integration tests
 
 ## Debugging
 

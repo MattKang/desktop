@@ -2,19 +2,21 @@ import * as React from 'react'
 import { join } from 'path'
 import { LinkButton } from '../lib/link-button'
 import { Button } from '../lib/button'
-import { Monospaced } from '../lib/monospaced'
 import { Repository } from '../../models/repository'
 import { Dispatcher } from '../dispatcher'
-import { Octicon, OcticonSymbol } from '../octicons'
+import { Octicon } from '../octicons'
+import * as OcticonSymbol from '../octicons/octicons.generated'
 import {
   ValidTutorialStep,
   TutorialStep,
   orderedTutorialSteps,
 } from '../../models/tutorial-step'
 import { encodePathAsUrl } from '../../lib/path'
-import { ExternalEditor } from '../../lib/editors'
 import { PopupType } from '../../models/popup'
 import { PreferencesTab } from '../../models/preferences'
+import { Ref } from '../lib/ref'
+import { suggestedExternalEditor } from '../../lib/editors/shared'
+import { TutorialStepInstructions } from './tutorial-step-instruction'
 
 const TutorialPanelImage = encodePathAsUrl(
   __dirname,
@@ -28,7 +30,7 @@ interface ITutorialPanelProps {
   /** name of the configured external editor
    * (`undefined` if none is configured.)
    */
-  readonly resolvedExternalEditor: ExternalEditor | null
+  readonly resolvedExternalEditor: string | null
   readonly currentTutorialStep: ValidTutorialStep
   readonly onExitTutorial: () => void
 }
@@ -116,17 +118,17 @@ export class TutorialPanel extends React.Component<
                   It doesn’t look like you have a text editor installed. We can
                   recommend{' '}
                   <LinkButton
+                    uri={suggestedExternalEditor.url}
+                    title={`Open the ${suggestedExternalEditor.name} website`}
+                  >
+                    {suggestedExternalEditor.name}
+                  </LinkButton>
+                  {` or `}
+                  <LinkButton
                     uri="https://atom.io"
                     title="Open the Atom website"
                   >
                     Atom
-                  </LinkButton>
-                  {` or `}
-                  <LinkButton
-                    uri="https://code.visualstudio.com"
-                    title="Open the VS Code website"
-                  >
-                    Visual Studio Code
                   </LinkButton>
                   , but feel free to use any.
                 </p>
@@ -187,7 +189,7 @@ export class TutorialPanel extends React.Component<
             <p className="description">
               Open this repository in your preferred text editor. Edit the
               {` `}
-              <Monospaced>README.md</Monospaced>
+              <Ref>README.md</Ref>
               {` `}
               file, save it, and come back.
             </p>
@@ -309,93 +311,6 @@ export class TutorialPanel extends React.Component<
   }
 }
 
-interface ITutorialStepInstructionsProps {
-  /** Text displayed to summarize this step */
-  readonly summaryText: string
-  /** Used to find out if this step has been completed */
-  readonly isComplete: (step: ValidTutorialStep) => boolean
-  /** The step for this section */
-  readonly sectionId: ValidTutorialStep
-  /** Used to find out if this is the next step for the user to complete */
-  readonly isNextStepTodo: (step: ValidTutorialStep) => boolean
-
-  /** ID of the currently expanded tutorial step
-   * (used to determine if this step is expanded)
-   */
-  readonly currentlyOpenSectionId: ValidTutorialStep
-
-  /** Skip button (if possible for this step) */
-  readonly skipLinkButton?: JSX.Element
-  /** Handler to open and close section */
-  readonly onSummaryClick: (id: ValidTutorialStep) => void
-}
-
-/** A step (summary and expandable description) in the tutorial side panel */
-class TutorialStepInstructions extends React.Component<
-  ITutorialStepInstructionsProps
-> {
-  public render() {
-    return (
-      <li key={this.props.sectionId} onClick={this.onSummaryClick}>
-        <details
-          open={this.props.sectionId === this.props.currentlyOpenSectionId}
-          onClick={this.onSummaryClick}
-        >
-          {this.renderSummary()}
-          <div className="contents">{this.props.children}</div>
-        </details>
-      </li>
-    )
-  }
-
-  private renderSummary = () => {
-    const shouldShowSkipLink =
-      this.props.skipLinkButton !== undefined &&
-      this.props.currentlyOpenSectionId === this.props.sectionId &&
-      this.props.isNextStepTodo(this.props.sectionId)
-    return (
-      <summary>
-        {this.renderTutorialStepIcon()}
-        <span className="summary-text">{this.props.summaryText}</span>
-        <span className="hang-right">
-          {shouldShowSkipLink ? (
-            this.props.skipLinkButton
-          ) : (
-            <Octicon symbol={OcticonSymbol.chevronDown} />
-          )}
-        </span>
-      </summary>
-    )
-  }
-
-  private renderTutorialStepIcon() {
-    if (this.props.isComplete(this.props.sectionId)) {
-      return (
-        <div className="green-circle">
-          <Octicon symbol={OcticonSymbol.check} />
-        </div>
-      )
-    }
-
-    // ugh zero-indexing
-    const stepNumber = orderedTutorialSteps.indexOf(this.props.sectionId) + 1
-    return this.props.isNextStepTodo(this.props.sectionId) ? (
-      <div className="blue-circle">{stepNumber}</div>
-    ) : (
-      <div className="empty-circle">{stepNumber}</div>
-    )
-  }
-
-  private onSummaryClick = (e: React.MouseEvent<HTMLElement>) => {
-    // prevents the default behavior of toggling on a `details` html element
-    // so we don't have to fight it with our react state
-    // for more info see:
-    // https://developer.mozilla.org/en-US/docs/Web/HTML/Element/details#Events
-    e.preventDefault()
-    this.props.onSummaryClick(this.props.sectionId)
-  }
-}
-
-const SkipLinkButton: React.SFC<{ onClick: () => void }> = props => (
-  <LinkButton onClick={props.onClick}>Skip</LinkButton>
-)
+const SkipLinkButton: React.FunctionComponent<{
+  onClick: () => void
+}> = props => <LinkButton onClick={props.onClick}>Skip</LinkButton>

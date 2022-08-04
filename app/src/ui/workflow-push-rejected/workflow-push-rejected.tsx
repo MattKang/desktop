@@ -2,14 +2,16 @@ import * as React from 'react'
 import { Dialog, DialogContent, DialogFooter } from '../dialog'
 import { Dispatcher } from '../dispatcher'
 import { Ref } from '../lib/ref'
-import { Repository } from '../../models/repository'
+import { RepositoryWithGitHubRepository } from '../../models/repository'
 import { OkCancelButtonGroup } from '../dialog/ok-cancel-button-group'
+import { getDotComAPIEndpoint } from '../../lib/api'
+
+const okButtonText = __DARWIN__ ? 'Continue in Browser' : 'Continue in browser'
 
 interface IWorkflowPushRejectedDialogProps {
   readonly rejectedPath: string
-  readonly repository: Repository
+  readonly repository: RepositoryWithGitHubRepository
   readonly dispatcher: Dispatcher
-
   readonly onDismissed: () => void
 }
 interface IWorkflowPushRejectedDialogState {
@@ -31,6 +33,7 @@ export class WorkflowPushRejectedDialog extends React.Component<
   public render() {
     return (
       <Dialog
+        id="workflow-push-rejected"
         title={__DARWIN__ ? 'Push Rejected' : 'Push rejected'}
         loading={this.state.loading}
         onDismissed={this.props.onDismissed}
@@ -40,7 +43,7 @@ export class WorkflowPushRejectedDialog extends React.Component<
         <DialogContent>
           <p>
             The push was rejected by the server for containing a modification to
-            a workflow file ( <Ref>{this.props.rejectedPath}</Ref>). In order to
+            the workflow file <Ref>{this.props.rejectedPath}</Ref>. In order to
             be able to push to workflow files GitHub Desktop needs to request
             additional permissions.
           </p>
@@ -50,7 +53,7 @@ export class WorkflowPushRejectedDialog extends React.Component<
           </p>
         </DialogContent>
         <DialogFooter>
-          <OkCancelButtonGroup okButtonText="Grant" />
+          <OkCancelButtonGroup okButtonText={okButtonText} />
         </DialogFooter>
       </Dialog>
     )
@@ -59,10 +62,19 @@ export class WorkflowPushRejectedDialog extends React.Component<
   private onSignIn = async () => {
     this.setState({ loading: true })
 
-    await this.props.dispatcher.beginDotComSignIn()
-    await this.props.dispatcher.requestBrowserAuthentication()
+    const { repository, dispatcher } = this.props
+    const { endpoint } = repository.gitHubRepository
 
-    this.props.dispatcher.push(this.props.repository)
+    if (endpoint === getDotComAPIEndpoint()) {
+      await dispatcher.beginDotComSignIn()
+    } else {
+      await dispatcher.beginEnterpriseSignIn()
+      await dispatcher.setSignInEndpoint(endpoint)
+    }
+
+    await dispatcher.requestBrowserAuthentication()
+
+    dispatcher.push(repository)
     this.props.onDismissed()
   }
 }

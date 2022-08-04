@@ -1,20 +1,8 @@
 import { BaseStore } from './base-store'
 import { AccountsStore } from './accounts-store'
 import { IAPIRepository, API } from '../api'
-import { Account } from '../../models/account'
+import { Account, accountEquals } from '../../models/account'
 import { merge } from '../merge'
-
-/**
- * Returns a value indicating whether two account instances
- * can be considered equal. Equality is determined by comparing
- * the two instances' endpoints and user id. This allows
- * us to keep receiving updated Account details from the API
- * while still maintaining the association between repositories
- * and a particular account.
- */
-function accountEquals(x: Account, y: Account) {
-  return x.endpoint === y.endpoint && x.id === y.id
-}
 
 /**
  * Attempt to look up an existing account in the account state
@@ -69,7 +57,7 @@ function resolveAccount(
  * An interface describing the current state of
  * repositories that a particular account has explicit
  * permissions to access and whether or not the list of
- * repositores is being loaded or refreshed.
+ * repositories is being loaded or refreshed.
  *
  * This main purpose of this interface is to describe
  * the state necessary to render a list of cloneable
@@ -142,7 +130,7 @@ export class ApiRepositoriesStore extends BaseStore {
     this.emitUpdate()
   }
 
-  private updateAccount<T, K extends keyof IAccountRepositories>(
+  private updateAccount<K extends keyof IAccountRepositories>(
     account: Account,
     repositories: Pick<IAccountRepositories, K>
   ) {

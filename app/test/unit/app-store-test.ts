@@ -42,7 +42,9 @@ import { RepositoryStateCache } from '../../src/lib/stores/repository-state-cach
 import { ApiRepositoriesStore } from '../../src/lib/stores/api-repositories-store'
 import { getStatusOrThrow } from '../helpers/status'
 import { AppFileStatusKind } from '../../src/models/status'
-import { ManualConflictResolutionKind } from '../../src/models/manual-conflict-resolution'
+import { ManualConflictResolution } from '../../src/models/manual-conflict-resolution'
+import { AliveStore } from '../../src/lib/stores/alive-store'
+import { NotificationsStore } from '../../src/lib/stores/notifications-store'
 
 // enable mocked version
 jest.mock('../../src/lib/window-state')
@@ -74,23 +76,34 @@ describe('AppStore', () => {
 
     const githubUserStore = new GitHubUserStore(db)
 
-    const repositoryStateManager = new RepositoryStateCache(repo =>
-      githubUserStore.getUsersForRepository(repo)
-    )
+    const repositoryStateManager = new RepositoryStateCache()
 
     const apiRepositoriesStore = new ApiRepositoriesStore(accountsStore)
+
+    const aliveStore = new AliveStore(accountsStore)
+
+    const statsStore = new StatsStore(statsDb, new TestActivityMonitor())
+
+    const notificationsStore = new NotificationsStore(
+      accountsStore,
+      aliveStore,
+      pullRequestCoordinator,
+      statsStore
+    )
+    notificationsStore.setNotificationsEnabled(false)
 
     const appStore = new AppStore(
       githubUserStore,
       new CloningRepositoriesStore(),
       new IssuesStore(issuesDb),
-      new StatsStore(statsDb, new TestActivityMonitor()),
+      statsStore,
       new SignInStore(),
       accountsStore,
       repositoriesStore,
       pullRequestCoordinator,
       repositoryStateManager,
-      apiRepositoriesStore
+      apiRepositoriesStore,
+      notificationsStore
     )
 
     return { appStore, repositoriesStore }
@@ -124,9 +137,7 @@ describe('AppStore', () => {
           return selectedState.state
         default:
           throw new Error(
-            `Got selected state of type ${
-              selectedState.type
-            } which is not supported.`
+            `Got selected state of type ${selectedState.type} which is not supported.`
           )
       }
     }
@@ -172,7 +183,7 @@ describe('AppStore', () => {
       let state = getAppState(appStore)
       expect(state.localCommitSHAs).toHaveLength(1)
 
-      await appStore._undoCommit(repository, firstCommit!)
+      await appStore._undoCommit(repository, firstCommit!, false)
 
       state = getAppState(appStore)
       expect(state.localCommitSHAs).toHaveLength(0)
@@ -205,7 +216,7 @@ describe('AppStore', () => {
         await appStore._finishConflictedMerge(
           repo,
           status.workingDirectory,
-          new Map<string, ManualConflictResolutionKind>()
+          new Map<string, ManualConflictResolution>()
         )
         const newStatus = await getStatusOrThrow(repo)
         const trackedFiles = newStatus.workingDirectory.files.filter(
@@ -223,7 +234,7 @@ describe('AppStore', () => {
         await appStore._finishConflictedMerge(
           repo,
           status.workingDirectory,
-          new Map<string, ManualConflictResolutionKind>()
+          new Map<string, ManualConflictResolution>()
         )
         const newStatus = await getStatusOrThrow(repo)
         const untrackedfiles = newStatus.workingDirectory.files.filter(
@@ -246,7 +257,7 @@ describe('AppStore', () => {
         await appStore._finishConflictedMerge(
           repo,
           status.workingDirectory,
-          new Map<string, ManualConflictResolutionKind>()
+          new Map<string, ManualConflictResolution>()
         )
         const newStatus = await getStatusOrThrow(repo)
         const modifiedFiles = newStatus.workingDirectory.files.filter(

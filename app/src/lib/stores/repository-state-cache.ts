@@ -3,7 +3,6 @@ import { Commit } from '../../models/commit'
 import { PullRequest } from '../../models/pull-request'
 import { Repository } from '../../models/repository'
 import {
-  CommittedFileChange,
   WorkingDirectoryFileChange,
   WorkingDirectoryStatus,
 } from '../../models/status'
@@ -16,29 +15,22 @@ import {
   IRepositoryState,
   RepositorySectionTab,
   ICommitSelection,
-  IRebaseState,
   ChangesSelectionKind,
+  IMultiCommitOperationUndoState,
+  IMultiCommitOperationState,
 } from '../app-state'
-import { ComparisonCache } from '../comparison-cache'
-import { IGitHubUser } from '../databases'
 import { merge } from '../merge'
 import { DefaultCommitMessage } from '../../models/commit-message'
+import { sendNonFatalException } from '../helpers/non-fatal-exception'
 
 export class RepositoryStateCache {
   private readonly repositoryState = new Map<string, IRepositoryState>()
-
-  public constructor(
-    private readonly getUsersForRepository: (
-      repository: Repository
-    ) => Map<string, IGitHubUser>
-  ) {}
 
   /** Get the state for the repository. */
   public get(repository: Repository): IRepositoryState {
     const existing = this.repositoryState.get(repository.hash)
     if (existing != null) {
-      const gitHubUsers = this.getUsersForRepository(repository)
-      return merge(existing, { gitHubUsers })
+      return existing
     }
 
     const newItem = getInitialRepositoryState()
@@ -52,7 +44,25 @@ export class RepositoryStateCache {
   ) {
     const currentState = this.get(repository)
     const newValues = fn(currentState)
-    this.repositoryState.set(repository.hash, merge(currentState, newValues))
+    const newState = merge(currentState, newValues)
+
+    const currentTip = currentState.branchesState.tip
+    const newTip = newState.branchesState.tip
+
+    // Only keep the "is amending" state if the head commit hasn't changed, it
+    // matches the commit to amend, and there is no "fixing conflicts" state.
+    const isAmending =
+      newState.commitToAmend !== null &&
+      newTip.kind === TipState.Valid &&
+      currentTip.kind === TipState.Valid &&
+      currentTip.branch.tip.sha === newTip.branch.tip.sha &&
+      newTip.branch.tip.sha === newState.commitToAmend.sha &&
+      newState.changesState.conflictState === null
+
+    this.repositoryState.set(repository.hash, {
+      ...newState,
+      commitToAmend: isAmending ? newState.commitToAmend : null,
+    })
   }
 
   public updateCompareState<K extends keyof ICompareState>(
@@ -100,14 +110,66 @@ export class RepositoryStateCache {
     })
   }
 
-  public updateRebaseState<K extends keyof IRebaseState>(
+  public updateMultiCommitOperationUndoState<
+    K extends keyof IMultiCommitOperationUndoState
+  >(
     repository: Repository,
-    fn: (branchesState: IRebaseState) => Pick<IRebaseState, K>
+    fn: (
+      state: IMultiCommitOperationUndoState | null
+    ) => Pick<IMultiCommitOperationUndoState, K> | null
   ) {
     this.update(repository, state => {
-      const { rebaseState } = state
-      const newState = merge(rebaseState, fn(rebaseState))
-      return { rebaseState: newState }
+      const { multiCommitOperationUndoState } = state
+      const computedState = fn(multiCommitOperationUndoState)
+      const newState =
+        computedState === null
+          ? null
+          : merge(multiCommitOperationUndoState, computedState)
+      return { multiCommitOperationUndoState: newState }
+    })
+  }
+
+  public updateMultiCommitOperationState<
+    K extends keyof IMultiCommitOperationState
+  >(
+    repository: Repository,
+    fn: (
+      state: IMultiCommitOperationState | null
+    ) => Pick<IMultiCommitOperationState, K>
+  ) {
+    this.update(repository, state => {
+      const { multiCommitOperationState } = state
+      const toUpdate = fn(multiCommitOperationState)
+
+      if (multiCommitOperationState === null) {
+        // This is not expected, but we see instances in error reporting. Best
+        // guess is that it would indicate that the user ended the state another
+        // way such as via command line/on state load detection, in which we
+        // would not want to crash the app.
+        const msg = `Cannot update a null state, trying to update object with keys: ${Object.keys(
+          toUpdate
+        ).join(', ')}`
+        sendNonFatalException('multiCommitOperation', new Error(msg))
+        return { multiCommitOperationState: null }
+      }
+
+      const newState = merge(multiCommitOperationState, toUpdate)
+      return { multiCommitOperationState: newState }
+    })
+  }
+
+  public initializeMultiCommitOperationState(
+    repository: Repository,
+    multiCommitOperationState: IMultiCommitOperationState
+  ) {
+    this.update(repository, () => {
+      return { multiCommitOperationState }
+    })
+  }
+
+  public clearMultiCommitOperationState(repository: Repository) {
+    this.update(repository, () => {
+      return { multiCommitOperationState: null }
     })
   }
 }
@@ -115,9 +177,10 @@ export class RepositoryStateCache {
 function getInitialRepositoryState(): IRepositoryState {
   return {
     commitSelection: {
-      sha: null,
+      shas: [],
+      isContiguous: true,
       file: null,
-      changedFiles: new Array<CommittedFileChange>(),
+      changesetData: { files: [], linesAdded: 0, linesDeleted: 0 },
       diff: null,
     },
     changesState: {
@@ -145,10 +208,9 @@ function getInitialRepositoryState(): IRepositoryState {
       openPullRequests: new Array<PullRequest>(),
       currentPullRequest: null,
       isLoadingPullRequests: false,
-      rebasedBranches: new Map<string, string>(),
+      forcePushBranches: new Map<string, string>(),
     },
     compareState: {
-      isDivergingBranchBannerVisible: false,
       formState: {
         kind: HistoryTabMode.History,
       },
@@ -157,26 +219,20 @@ function getInitialRepositoryState(): IRepositoryState {
       showBranchList: false,
       filterText: '',
       commitSHAs: [],
-      aheadBehindCache: new ComparisonCache(),
-      allBranches: new Array<Branch>(),
+      branches: new Array<Branch>(),
       recentBranches: new Array<Branch>(),
       defaultBranch: null,
-      inferredComparisonBranch: { branch: null, aheadBehind: null },
-    },
-    rebaseState: {
-      step: null,
-      progress: null,
-      commits: null,
-      userHasResolvedConflicts: false,
     },
     commitAuthor: null,
-    gitHubUsers: new Map<string, IGitHubUser>(),
     commitLookup: new Map<string, Commit>(),
     localCommitSHAs: [],
+    localTags: null,
+    tagsToPush: null,
     aheadBehind: null,
     remote: null,
     isPushPullFetchInProgress: false,
     isCommitting: false,
+    commitToAmend: null,
     lastFetched: null,
     checkoutProgress: null,
     pushPullFetchProgress: null,
@@ -184,5 +240,7 @@ function getInitialRepositoryState(): IRepositoryState {
     isUsingLFS: false,
     locks: null,
     lockingUser: null,
+    multiCommitOperationUndoState: null,
+    multiCommitOperationState: null,
   }
 }

@@ -2,36 +2,11 @@ import * as React from 'react'
 import { Branch, BranchType } from '../../models/branch'
 
 import { Row } from './row'
-import { Octicon, OcticonSymbol } from '../octicons'
+import { Octicon } from '../octicons'
+import * as OcticonSymbol from '../octicons/octicons.generated'
 import { Ref } from './ref'
 import { IStashEntry } from '../../models/stash-entry'
 
-export function renderBranchNameWarning(
-  proposedName: string,
-  sanitizedName: string
-) {
-  if (proposedName.length > 0 && /^\s*$/.test(sanitizedName)) {
-    return (
-      <Row className="warning-helper-text">
-        <Octicon symbol={OcticonSymbol.alert} />
-        <p>
-          <Ref>{proposedName}</Ref> is not a valid branch name.
-        </p>
-      </Row>
-    )
-  } else if (proposedName !== sanitizedName) {
-    return (
-      <Row className="warning-helper-text">
-        <Octicon symbol={OcticonSymbol.alert} />
-        <p>
-          Will be created as <Ref>{sanitizedName}</Ref>.
-        </p>
-      </Row>
-    )
-  } else {
-    return null
-  }
-}
 export function renderBranchHasRemoteWarning(branch: Branch) {
   if (branch.upstream != null) {
     return (

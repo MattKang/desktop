@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Octicon, OcticonSymbol } from '../octicons'
+import { Octicon } from '../octicons'
+import * as OcticonSymbol from '../octicons/octicons.generated'
 
 interface IBannerProps {
   readonly id?: string
@@ -9,7 +10,7 @@ interface IBannerProps {
 }
 
 export class Banner extends React.Component<IBannerProps, {}> {
-  private timeoutId: NodeJS.Timer | null = null
+  private timeoutId: number | null = null
 
   public render() {
     return (
@@ -37,7 +38,7 @@ export class Banner extends React.Component<IBannerProps, {}> {
 
   public componentDidMount = () => {
     if (this.props.timeout !== undefined) {
-      this.timeoutId = setTimeout(() => {
+      this.timeoutId = window.setTimeout(() => {
         this.props.onDismissed()
       }, this.props.timeout)
     }
@@ -45,7 +46,7 @@ export class Banner extends React.Component<IBannerProps, {}> {
 
   public componentWillUnmount = () => {
     if (this.props.timeout !== undefined && this.timeoutId !== null) {
-      clearTimeout(this.timeoutId)
+      window.clearTimeout(this.timeoutId)
     }
   }
 }

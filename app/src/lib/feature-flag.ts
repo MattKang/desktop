@@ -22,14 +22,10 @@ function enableDevelopmentFeatures(): boolean {
 }
 
 /** Should the app enable beta features? */
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 //@ts-ignore: this will be used again in the future
 function enableBetaFeatures(): boolean {
   return enableDevelopmentFeatures() || __RELEASE_CHANNEL__ === 'beta'
-}
-
-/** Should merge tool integration be enabled? */
-export function enableMergeTool(): boolean {
-  return enableDevelopmentFeatures()
 }
 
 /** Should git pass `--recurse-submodules` when performing operations? */
@@ -41,77 +37,145 @@ export function enableReadmeOverwriteWarning(): boolean {
   return enableBetaFeatures()
 }
 
-/** Should the app automatically prune branches that are no longer actively being used */
-export function enableBranchPruning(): boolean {
-  return true
-}
-
-/**
- * Whether or not to activate the "Create PR" blankslate action.
- *
- * The state of the feature as of writing this is that the underlying
- * data source required to power this feature is not reliable enough
- * and needs looking at so we aren't ready to move this to production
- * just yet.
- */
-export function enableNoChangesCreatePRBlankslateAction(): boolean {
-  return true
-}
-
-/**
- *  Enables a new UI for the repository picker that supports
- *  grouping and filtering (GitHub) repositories by owner/organization.
- */
-export function enableGroupRepositoriesByOwner(): boolean {
-  return true
-}
-
-/** Should the app show the "rebase current branch" dialog? */
-export function enableRebaseDialog(): boolean {
-  return true
-}
-
-/** Should the app show the "stash changes" dialog? */
-export function enableStashing(): boolean {
-  return true
-}
-
-/**
- * Should the application query for branch protection information and store this
- * to help the maintainers understand how broadly branch protections are
- * encountered?
- */
-export function enableBranchProtectionChecks(): boolean {
-  return true
-}
-
 /** Should the app detect Windows Subsystem for Linux as a valid shell? */
 export function enableWSLDetection(): boolean {
   return enableBetaFeatures()
 }
 
-/**
- * Should the application warn the user when they are about to commit to a
- * protected branch, and encourage them into a flow to move their changes to
- * a new branch?
- *
- * As this builds upon existing branch protection features in the codebase, this
- * flag is linked to to `enableBranchProtectionChecks()`.
- */
-export function enableBranchProtectionWarningFlow(): boolean {
-  return true
-}
-
+/** Should the app show hide whitespace in changes tab */
 export function enableHideWhitespaceInDiffOption(): boolean {
   return true
 }
 
 /**
- * Should we enable the onboarding tutorial. This includes the initial
- * configuration of the tutorial repo as well as the tutorial itself.
+ * Should we use the new diff viewer for unified diffs?
  */
-export function enableTutorial(): boolean {
+export function enableExperimentalDiffViewer(): boolean {
+  return false
+}
+
+/**
+ * Should we allow reporting unhandled rejections as if they were crashes?
+ */
+export function enableUnhandledRejectionReporting(): boolean {
+  return enableBetaFeatures()
+}
+
+/** Should we allow expanding text diffs? */
+export function enableTextDiffExpansion(): boolean {
   return true
+}
+
+/**
+ * Should we allow x64 apps running under ARM translation to auto-update to
+ * ARM64 builds?
+ */
+export function enableUpdateFromEmulatedX64ToARM64(): boolean {
+  if (__DARWIN__) {
+    return true
+  }
+
+  return enableBetaFeatures()
+}
+
+/** Should we allow setting repository aliases? */
+export function enableRepositoryAliases(): boolean {
+  return true
+}
+
+/** Should we allow to create branches from a commit? */
+export function enableBranchFromCommit(): boolean {
+  return true
+}
+
+/** Should we allow squashing? */
+export function enableSquashing(): boolean {
+  return true
+}
+
+/** Should we allow squash-merging? */
+export function enableSquashMerging(): boolean {
+  return true
+}
+
+/** Should we allow amending commits? */
+export function enableAmendingCommits(): boolean {
+  return true
+}
+
+/** Should we allow reordering commits? */
+export function enableCommitReordering(): boolean {
+  return true
+}
+
+/** Should we allow resetting to a previous commit? */
+export function enableResetToCommit(): boolean {
+  return enableDevelopmentFeatures()
+}
+
+/** Should we show line changes (added/deleted) in commits? */
+export function enableLineChangesInCommit(): boolean {
+  return true
+}
+
+/** Should we allow high contrast theme option */
+export function enableHighContrastTheme(): boolean {
+  return enableBetaFeatures()
+}
+
+/** Should we allow customizing a theme */
+export function enableCustomizeTheme(): boolean {
+  return enableBetaFeatures()
+}
+
+/** Should we allow using Windows' OpenSSH? */
+export function enableWindowsOpenSSH(): boolean {
+  return true
+}
+
+/** Should we use SSH askpass? */
+export function enableSSHAskPass(): boolean {
+  return true
+}
+
+/** Should we show ci check runs? */
+export function enableCICheckRuns(): boolean {
+  return true
+}
+
+/** Should ci check runs show logs? */
+export function enableCICheckRunsLogs(): boolean {
+  return false
+}
+
+/** Should we show previous tags as suggestions? */
+export function enablePreviousTagSuggestions(): boolean {
+  return enableBetaFeatures()
+}
+
+/** Should we show a pull-requests quick view? */
+export function enablePullRequestQuickView(): boolean {
+  return enableDevelopmentFeatures()
+}
+
+/** Should we enable high-signal notifications? */
+export function enableHighSignalNotifications(): boolean {
+  return true
+}
+
+/** Should we enable PR review notifications? */
+export function enablePullRequestReviewNotifications(): boolean {
+  return true
+}
+
+/** Should we enable the rerunning of failed and single jobs aka action based checks */
+export function enableReRunFailedAndSingleCheckJobs(): boolean {
+  return true
+}
+
+/** Should we enable displaying multi commit diffs. This also switches diff logic from one commit */
+export function enableMultiCommitDiffs(): boolean {
+  return enableDevelopmentFeatures()
 }
 
 /** Should the LFS lock tools be enabled? */

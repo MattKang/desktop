@@ -4,6 +4,7 @@
 #commit-summary {
   display: flex;
   flex-direction: column;
+  min-height: 0;
 
   .avatar {
     width: 16px;
@@ -24,7 +25,7 @@
 
   &.expanded {
     .commit-summary-description-scroll-view {
-      max-height: none;
+      max-height: 400px;
       overflow: auto;
 
       &:before {
@@ -70,6 +71,14 @@
   &-title,
   &-meta {
     padding: var(--spacing);
+
+    .lines-added {
+      color: var(--color-new);
+    }
+
+    .lines-deleted {
+      color: var(--color-deleted);
+    }
   }
 
   &-title {
@@ -78,6 +87,10 @@
     line-height: 16px;
     padding: var(--spacing);
     word-wrap: break-word;
+
+    &.empty-summary {
+      color: var(--text-secondary-color);
+    }
   }
 
   &-description-container {
@@ -85,6 +98,7 @@
     // So that we have something to position the expander against
     position: relative;
     border-bottom: var(--base-border);
+    min-height: 0;
   }
 
   &-description-scroll-view {
@@ -97,13 +111,12 @@
   // Enable text selection inside the title and description elements.
   &-title,
   &-description {
-    span,
-    a {
-      -webkit-user-select: text;
-      user-select: text;
-    }
+    user-select: text;
+    cursor: text;
 
-    span {
+    * {
+      user-select: unset;
+      pointer-events: unset;
       cursor: text;
     }
   }
@@ -114,6 +127,7 @@
     word-wrap: break-word;
     white-space: pre-line;
     padding: var(--spacing);
+    min-height: 0;
   }
 
   &-meta {
@@ -124,11 +138,8 @@
   }
 
   &-meta-item:not(.without-truncation) {
-    @include ellipsis;
-  }
-
-  &-file-name {
-    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
   }
 
   &-meta-item {
@@ -137,6 +148,7 @@
     min-width: 0;
     margin-right: var(--spacing);
     font-size: var(--font-size-sm);
+    flex-shrink: 0;
 
     .avatar,
     .octicon {
@@ -147,6 +159,11 @@
 
     .sha {
       user-select: text;
+    }
+
+    .tags {
+      @include ellipsis;
+      flex-shrink: 1;
     }
   }
 

@@ -18,6 +18,7 @@
   overflow-y: auto;
 
   li {
+    flex-shrink: 0;
     height: 29px;
     padding: 0 var(--spacing);
   }
@@ -168,6 +169,17 @@
     .name {
       @include ellipsis;
       color: var(--text-secondary-color);
+    }
+  }
+}
+
+.author-input-component {
+  ul.CodeMirror-hints {
+    margin-top: var(--spacing-double);
+    padding: 0;
+    li {
+      margin-bottom: auto;
+      padding-left: var(--spacing);
     }
   }
 }

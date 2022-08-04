@@ -100,6 +100,11 @@ h6 {
   margin-bottom: 0.5rem;
 }
 
+code,
+pre {
+  font-family: var(--font-family-monospace);
+}
+
 // Regardless of platform behavior we never want buttons to be
 // app drag targets unless explicitly specified.
 button {
@@ -151,7 +156,8 @@ button {
 
 // http://stackoverflow.com/questions/7538771/what-is-webkit-focus-ring-color
 :focus {
-  outline: auto 5px var(--focus-color);
+  outline: auto;
+  outline-color: var(--focus-color);
 }
 .more-dropdown {
   color: var(--text-color) !important;

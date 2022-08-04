@@ -29,6 +29,9 @@ import { TestActivityMonitor } from '../helpers/test-activity-monitor'
 import { RepositoryStateCache } from '../../src/lib/stores/repository-state-cache'
 import { ApiRepositoriesStore } from '../../src/lib/stores/api-repositories-store'
 import { CommitStatusStore } from '../../src/lib/stores/commit-status-store'
+import { AheadBehindStore } from '../../src/lib/stores/ahead-behind-store'
+import { AliveStore } from '../../src/lib/stores/alive-store'
+import { NotificationsStore } from '../../src/lib/stores/notifications-store'
 
 describe('App', () => {
   let appStore: AppStore
@@ -37,6 +40,7 @@ describe('App', () => {
   let repositoryStateManager: RepositoryStateCache
   let githubUserStore: GitHubUserStore
   let issuesStore: IssuesStore
+  let aheadBehindStore: AheadBehindStore
 
   beforeEach(async () => {
     const db = new TestGitHubUserDatabase()
@@ -66,12 +70,21 @@ describe('App', () => {
     githubUserStore = new GitHubUserStore(db)
     issuesStore = new IssuesStore(issuesDb)
 
-    repositoryStateManager = new RepositoryStateCache(repo =>
-      githubUserStore.getUsersForRepository(repo)
-    )
+    repositoryStateManager = new RepositoryStateCache()
 
     const apiRepositoriesStore = new ApiRepositoriesStore(accountsStore)
     const commitStatusStore = new CommitStatusStore(accountsStore)
+    aheadBehindStore = new AheadBehindStore()
+
+    const aliveStore = new AliveStore(accountsStore)
+
+    const notificationsStore = new NotificationsStore(
+      accountsStore,
+      aliveStore,
+      pullRequestCoordinator,
+      statsStore
+    )
+    notificationsStore.setNotificationsEnabled(false)
 
     appStore = new AppStore(
       githubUserStore,
@@ -83,7 +96,8 @@ describe('App', () => {
       repositoriesStore,
       pullRequestCoordinator,
       repositoryStateManager,
-      apiRepositoriesStore
+      apiRepositoriesStore,
+      notificationsStore
     )
 
     dispatcher = new InMemoryDispatcher(
@@ -102,9 +116,10 @@ describe('App', () => {
         repositoryStateManager={repositoryStateManager}
         issuesStore={issuesStore}
         gitHubUserStore={githubUserStore}
+        aheadBehindStore={aheadBehindStore}
         startTime={0}
       />
-    ) as React.Component<any, any>
+    ) as unknown as React.Component<any, any>
     // Give any promises a tick to resolve.
     await wait(0)
 

@@ -8,7 +8,7 @@ describe('git/log', () => {
   let repository: Repository
 
   beforeEach(async () => {
-    const testRepoPath = await setupFixtureRepository('test-repo')
+    const testRepoPath = await setupFixtureRepository('test-repo-with-tags')
     repository = new Repository(testRepoPath, -1, null, false)
   })
 
@@ -45,17 +45,29 @@ describe('git/log', () => {
       expect(commits[0].sha).toBe('415e4987158c49c383ce7114e0ef00ebf4b070c1')
       expect(commits[0].shortSha).toBe('415e498')
     })
+
+    it('parses tags', async () => {
+      const commits = await getCommits(repository, 'HEAD', 100)
+      expect(commits).toBeArrayOfSize(5)
+
+      expect(commits[0].tags).toIncludeSameMembers(['important'])
+      expect(commits[1].tags).toIncludeSameMembers([
+        'tentative',
+        'less-important',
+      ])
+      expect(commits[2].tags).toBeArrayOfSize(0)
+    })
   })
 
   describe('getChangedFiles', () => {
     it('loads the files changed in the commit', async () => {
-      const files = await getChangedFiles(
+      const changesetData = await getChangedFiles(
         repository,
         '7cd6640e5b6ca8dbfd0b33d0281ebe702127079c'
       )
-      expect(files).toHaveLength(1)
-      expect(files[0].path).toBe('README.md')
-      expect(files[0].status.kind).toBe(AppFileStatusKind.New)
+      expect(changesetData.files).toHaveLength(1)
+      expect(changesetData.files[0].path).toBe('README.md')
+      expect(changesetData.files[0].status.kind).toBe(AppFileStatusKind.New)
     })
 
     it('detects renames', async () => {
@@ -65,19 +77,19 @@ describe('git/log', () => {
       repository = new Repository(testRepoPath, -1, null, false)
 
       const first = await getChangedFiles(repository, '55bdecb')
-      expect(first).toHaveLength(1)
+      expect(first.files).toHaveLength(1)
 
-      expect(first[0].path).toBe('NEWER.md')
-      expect(first[0].status).toEqual({
+      expect(first.files[0].path).toBe('NEWER.md')
+      expect(first.files[0].status).toEqual({
         kind: AppFileStatusKind.Renamed,
         oldPath: 'NEW.md',
       })
 
       const second = await getChangedFiles(repository, 'c898ca8')
-      expect(second).toHaveLength(1)
+      expect(second.files).toHaveLength(1)
 
-      expect(second[0].path).toBe('NEW.md')
-      expect(second[0].status).toEqual({
+      expect(second.files[0].path).toBe('NEW.md')
+      expect(second.files[0].status).toEqual({
         kind: AppFileStatusKind.Renamed,
         oldPath: 'OLD.md',
       })
@@ -92,27 +104,29 @@ describe('git/log', () => {
       // ensure the test repository is configured to detect copies
       await setupLocalConfig(repository, [['diff.renames', 'copies']])
 
-      const files = await getChangedFiles(repository, 'a500bf415')
-      expect(files).toHaveLength(2)
+      const changesetData = await getChangedFiles(repository, 'a500bf415')
+      expect(changesetData.files).toHaveLength(2)
 
-      expect(files[0].path).toBe('duplicate-with-edits.md')
-      expect(files[0].status).toEqual({
+      expect(changesetData.files[0].path).toBe('duplicate-with-edits.md')
+      expect(changesetData.files[0].status).toEqual({
         kind: AppFileStatusKind.Copied,
         oldPath: 'initial.md',
       })
 
-      expect(files[1].path).toBe('duplicate.md')
-      expect(files[1].status).toEqual({
+      expect(changesetData.files[1].path).toBe('duplicate.md')
+      expect(changesetData.files[1].status).toEqual({
         kind: AppFileStatusKind.Copied,
         oldPath: 'initial.md',
       })
     })
 
     it('handles commit when HEAD exists on disk', async () => {
-      const files = await getChangedFiles(repository, 'HEAD')
-      expect(files).toHaveLength(1)
-      expect(files[0].path).toBe('README.md')
-      expect(files[0].status.kind).toBe(AppFileStatusKind.Modified)
+      const changesetData = await getChangedFiles(repository, 'HEAD')
+      expect(changesetData.files).toHaveLength(1)
+      expect(changesetData.files[0].path).toBe('README.md')
+      expect(changesetData.files[0].status.kind).toBe(
+        AppFileStatusKind.Modified
+      )
     })
   })
 })

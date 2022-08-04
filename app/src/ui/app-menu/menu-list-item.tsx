@@ -1,7 +1,8 @@
 import * as React from 'react'
-import * as classNames from 'classnames'
+import classNames from 'classnames'
 
-import { Octicon, OcticonSymbol } from '../octicons'
+import { Octicon } from '../octicons'
+import * as OcticonSymbol from '../octicons/octicons.generated'
 import { MenuItem } from '../../models/app-menu'
 import { AccessText } from '../lib/access-text'
 import { getPlatformSpecificNameOrSymbolForModifier } from '../../lib/menu-item'
@@ -52,7 +53,7 @@ export class MenuListItem extends React.Component<IMenuListItemProps, {}> {
     if (item.type === 'checkbox' && item.checked) {
       return <Octicon className="icon" symbol={OcticonSymbol.check} />
     } else if (item.type === 'radio' && item.checked) {
-      return <Octicon className="icon" symbol={OcticonSymbol.primitiveDot} />
+      return <Octicon className="icon" symbol={OcticonSymbol.dotFill} />
     }
 
     return null

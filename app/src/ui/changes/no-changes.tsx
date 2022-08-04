@@ -3,16 +3,11 @@ import * as React from 'react'
 import { encodePathAsUrl } from '../../lib/path'
 import { Repository } from '../../models/repository'
 import { LinkButton } from '../lib/link-button'
-import {
-  enableNoChangesCreatePRBlankslateAction,
-  enableStashing,
-} from '../../lib/feature-flag'
 import { MenuIDs } from '../../models/menu-ids'
 import { IMenu, MenuItem } from '../../models/app-menu'
 import memoizeOne from 'memoize-one'
 import { getPlatformSpecificNameOrSymbolForModifier } from '../../lib/menu-item'
 import { MenuBackedSuggestedAction } from '../suggested-actions'
-import { executeMenuItemById } from '../main-process-proxy'
 import { IRepositoryState } from '../../lib/app-state'
 import { TipState, IValidBranch } from '../../models/tip'
 import { Ref } from '../lib/ref'
@@ -23,10 +18,17 @@ import { StashedChangesLoadStates } from '../../models/stash-entry'
 import { Dispatcher } from '../dispatcher'
 import { SuggestedActionGroup } from '../suggested-actions'
 import { Checkbox, CheckboxValue } from '../lib/checkbox'
+import { PreferencesTab } from '../../models/preferences'
+import { PopupType } from '../../models/popup'
 
 function formatMenuItemLabel(text: string) {
   if (__WIN32__ || __LINUX__) {
-    return text.replace('&', '')
+    // Ampersand has a special meaning on Windows where it denotes
+    // the access key (usually rendered as an underline on the following)
+    // character. A literal ampersand is escaped by putting another ampersand
+    // in front of it (&&). Here we strip single ampersands and unescape
+    // double ampersands. Example: "&Push && Pull" becomes "Push & Pull".
+    return text.replace(/&?&/g, m => (m.length > 1 ? '&' : ''))
   }
 
   return text
@@ -179,7 +181,7 @@ export class NoChanges extends React.Component<
 
   /**
    * ID for the timer that's activated when the component
-   * mounts. See componentDidMount/componenWillUnmount.
+   * mounts. See componentDidMount/componentWillUnmount.
    */
   private transitionTimer: number | null = null
 
@@ -276,8 +278,11 @@ export class NoChanges extends React.Component<
   private onViewOnGitHubClicked = () =>
     this.props.dispatcher.recordSuggestedStepViewOnGitHub()
 
-  private openPreferences = () => {
-    executeMenuItemById('preferences')
+  private openIntegrationPreferences = () => {
+    this.props.dispatcher.showPopup({
+      type: PopupType.Preferences,
+      initialSelectedTab: PreferencesTab.Integrations,
+    })
   }
 
   private renderOpenInExternalEditor() {
@@ -305,7 +310,7 @@ export class NoChanges extends React.Component<
     const description = (
       <>
         Select your editor in{' '}
-        <LinkButton onClick={this.openPreferences}>
+        <LinkButton onClick={this.openIntegrationPreferences}>
           {__DARWIN__ ? 'Preferences' : 'Options'}
         </LinkButton>
       </>
@@ -323,7 +328,8 @@ export class NoChanges extends React.Component<
     this.props.dispatcher.recordSuggestedStepOpenInExternalEditor()
 
   private renderRemoteAction() {
-    const { remote, aheadBehind, branchesState } = this.props.repositoryState
+    const { remote, aheadBehind, branchesState, tagsToPush } =
+      this.props.repositoryState
     const { tip, defaultBranch, currentPullRequest } = branchesState
 
     if (tip.kind !== TipState.Valid) {
@@ -351,29 +357,26 @@ export class NoChanges extends React.Component<
       return this.renderPullBranchAction(tip, remote, aheadBehind)
     }
 
-    if (aheadBehind.ahead > 0) {
-      return this.renderPushBranchAction(tip, remote, aheadBehind)
+    if (
+      aheadBehind.ahead > 0 ||
+      (tagsToPush !== null && tagsToPush.length > 0)
+    ) {
+      return this.renderPushBranchAction(tip, remote, aheadBehind, tagsToPush)
     }
 
-    if (enableNoChangesCreatePRBlankslateAction()) {
-      const isGitHub = this.props.repository.gitHubRepository !== null
-      const hasOpenPullRequest = currentPullRequest !== null
-      const isDefaultBranch =
-        defaultBranch !== null && tip.branch.name === defaultBranch.name
+    const isGitHub = this.props.repository.gitHubRepository !== null
+    const hasOpenPullRequest = currentPullRequest !== null
+    const isDefaultBranch =
+      defaultBranch !== null && tip.branch.name === defaultBranch.name
 
-      if (isGitHub && !hasOpenPullRequest && !isDefaultBranch) {
-        return this.renderCreatePullRequestAction(tip)
-      }
+    if (isGitHub && !hasOpenPullRequest && !isDefaultBranch) {
+      return this.renderCreatePullRequestAction(tip)
     }
 
     return null
   }
 
   private renderViewStashAction() {
-    if (!enableStashing()) {
-      return null
-    }
-
     const { changesState, branchesState } = this.props.repositoryState
 
     const { tip } = branchesState
@@ -547,9 +550,8 @@ export class NoChanges extends React.Component<
       </>
     )
 
-    const title = `Pull ${aheadBehind.behind} ${
-      aheadBehind.behind === 1 ? 'commit' : 'commits'
-    } from the ${remote.name} remote`
+    const title = `Pull ${aheadBehind.behind} ${aheadBehind.behind === 1 ? 'commit' : 'commits'
+      } from the ${remote.name} remote`
 
     const buttonText = `Pull ${remote.name}`
 
@@ -576,7 +578,8 @@ export class NoChanges extends React.Component<
   private renderPushBranchAction(
     tip: IValidBranch,
     remote: IRemote,
-    aheadBehind: IAheadBehind
+    aheadBehind: IAheadBehind,
+    tagsToPush: ReadonlyArray<string> | null
   ) {
     const itemId: MenuIDs = 'push'
     const menuItem = this.getMenuItemInfo(itemId)
@@ -588,13 +591,28 @@ export class NoChanges extends React.Component<
 
     const isGitHub = this.props.repository.gitHubRepository !== null
 
-    const description = (
-      <>
-        You have{' '}
-        {aheadBehind.ahead === 1 ? 'one local commit' : 'local commits'} waiting
-        to be pushed to {isGitHub ? 'GitHub' : 'the remote'}.
-      </>
-    )
+    const itemsToPushTypes = []
+    const itemsToPushDescriptions = []
+
+    if (aheadBehind.ahead > 0) {
+      itemsToPushTypes.push('commits')
+      itemsToPushDescriptions.push(
+        aheadBehind.ahead === 1
+          ? '1 local commit'
+          : `${aheadBehind.ahead} local commits`
+      )
+    }
+
+    if (tagsToPush !== null && tagsToPush.length > 0) {
+      itemsToPushTypes.push('tags')
+      itemsToPushDescriptions.push(
+        tagsToPush.length === 1 ? '1 tag' : `${tagsToPush.length} tags`
+      )
+    }
+
+    const description = `You have ${itemsToPushDescriptions.join(
+      ' and '
+    )} waiting to be pushed to ${isGitHub ? 'GitHub' : 'the remote'}.`
 
     const discoverabilityContent = (
       <>
@@ -603,9 +621,8 @@ export class NoChanges extends React.Component<
       </>
     )
 
-    const title = `Push ${aheadBehind.ahead} ${
-      aheadBehind.ahead === 1 ? 'commit' : 'commits'
-    } to the ${remote.name} remote`
+    const title = `Push ${itemsToPushTypes.join(' and ')} to the ${remote.name
+      } remote`
 
     const buttonText = `Push ${remote.name}`
 

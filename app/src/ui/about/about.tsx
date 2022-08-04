@@ -17,7 +17,10 @@ import { assertNever } from '../../lib/fatal-error'
 import { ReleaseNotesUri } from '../lib/releases'
 import { encodePathAsUrl } from '../../lib/path'
 
-const DesktopLogo = encodePathAsUrl(__dirname, 'static/logo-64x64@2x.png')
+const logoPath = __DARWIN__
+  ? 'static/logo-64x64@2x.png'
+  : 'static/windows-logo-64x64@2x.png'
+const DesktopLogo = encodePathAsUrl(__dirname, logoPath)
 
 interface IAboutProps {
   /**
@@ -35,6 +38,11 @@ interface IAboutProps {
    * The currently installed (and running) version of the app.
    */
   readonly applicationVersion: string
+
+  /**
+   * The currently installed (and running) architecture of the app.
+   */
+  readonly applicationArchitecture: string
 
   /** A function to call to kick off an update check. */
   readonly onCheckForUpdates: () => void
@@ -87,10 +95,7 @@ export class About extends React.Component<IAboutProps, IAboutState> {
   }
 
   private renderUpdateButton() {
-    if (
-      __RELEASE_CHANNEL__ === 'development' ||
-      __RELEASE_CHANNEL__ === 'test'
-    ) {
+    if (__RELEASE_CHANNEL__ === 'development') {
       return null
     }
 
@@ -108,7 +113,11 @@ export class About extends React.Component<IAboutProps, IAboutState> {
       case UpdateStatus.UpdateNotAvailable:
       case UpdateStatus.CheckingForUpdates:
       case UpdateStatus.UpdateAvailable:
-        const disabled = updateStatus !== UpdateStatus.UpdateNotAvailable
+      case UpdateStatus.UpdateNotChecked:
+        const disabled = ![
+          UpdateStatus.UpdateNotChecked,
+          UpdateStatus.UpdateNotAvailable,
+        ].includes(updateStatus)
 
         return (
           <Row>
@@ -172,14 +181,11 @@ export class About extends React.Component<IAboutProps, IAboutState> {
       return null
     }
 
-    if (
-      __RELEASE_CHANNEL__ === 'development' ||
-      __RELEASE_CHANNEL__ === 'test'
-    ) {
+    if (__RELEASE_CHANNEL__ === 'development') {
       return (
         <p>
-          The application is currently running in development or test mode and
-          will not receive any updates.
+          The application is currently running in development and will not
+          receive any updates.
         </p>
       )
     }
@@ -195,6 +201,8 @@ export class About extends React.Component<IAboutProps, IAboutState> {
         return this.renderUpdateNotAvailable()
       case UpdateStatus.UpdateReady:
         return this.renderUpdateReady()
+      case UpdateStatus.UpdateNotChecked:
+        return null
       default:
         return assertNever(
           updateState.status,
@@ -208,10 +216,7 @@ export class About extends React.Component<IAboutProps, IAboutState> {
       return null
     }
 
-    if (
-      __RELEASE_CHANNEL__ === 'development' ||
-      __RELEASE_CHANNEL__ === 'test'
-    ) {
+    if (__RELEASE_CHANNEL__ === 'development') {
       return null
     }
 
@@ -226,6 +231,24 @@ export class About extends React.Component<IAboutProps, IAboutState> {
     }
 
     return null
+  }
+
+  private renderBetaLink() {
+    if (__RELEASE_CHANNEL__ === 'beta') {
+      return
+    }
+
+    return (
+      <div>
+        <p className="no-padding">Looking for the latest features?</p>
+        <p className="no-padding">
+          Check out the{' '}
+          <LinkButton uri="https://desktop.github.com/beta">
+            Beta Channel
+          </LinkButton>
+        </p>
+      </div>
+    )
   }
 
   public render() {
@@ -255,8 +278,10 @@ export class About extends React.Component<IAboutProps, IAboutState> {
           </Row>
           <h2>{name}</h2>
           <p className="no-padding">
-            <span className="selectable-text">{versionText}</span> (
-            {releaseNotesLink})
+            <span className="selectable-text">
+              {versionText} ({this.props.applicationArchitecture})
+            </span>{' '}
+            ({releaseNotesLink})
           </p>
           <p className="no-padding">
             <LinkButton onClick={this.props.onShowTermsAndConditions}>
@@ -270,6 +295,7 @@ export class About extends React.Component<IAboutProps, IAboutState> {
           </p>
           {this.renderUpdateDetails()}
           {this.renderUpdateButton()}
+          {this.renderBetaLink()}
         </DialogContent>
         <DefaultDialogFooter />
       </Dialog>

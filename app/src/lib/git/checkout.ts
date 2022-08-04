@@ -7,8 +7,14 @@ import {
   CheckoutProgressParser,
   executionOptionsWithProgress,
 } from '../progress'
-import { envForAuthentication, AuthenticationErrors } from './authentication'
+import { AuthenticationErrors } from './authentication'
 import { enableRecurseSubmodulesFlag } from '../feature-flag'
+import {
+  envForRemoteOperation,
+  getFallbackUrlForProxyResolve,
+} from './environment'
+import { WorkingDirectoryFileChange } from '../../models/status'
+import { ManualConflictResolution } from '../../models/manual-conflict-resolution'
 
 export type ProgressCallback = (progress: ICheckoutProgress) => void
 
@@ -18,12 +24,10 @@ async function getCheckoutArgs(
   account: IGitAccount | null,
   progressCallback?: ProgressCallback
 ) {
-  const networkArguments = await gitNetworkArguments(repository, account)
-
   const baseArgs =
     progressCallback != null
-      ? [...networkArguments, 'checkout', '--progress']
-      : [...networkArguments, 'checkout']
+      ? [...gitNetworkArguments(), 'checkout', '--progress']
+      : [...gitNetworkArguments(), 'checkout']
 
   if (enableRecurseSubmodulesFlag()) {
     return branch.type === BranchType.Remote
@@ -63,7 +67,10 @@ export async function checkoutBranch(
   progressCallback?: ProgressCallback
 ): Promise<true> {
   let opts: IGitExecutionOptions = {
-    env: envForAuthentication(account),
+    env: await envForRemoteOperation(
+      account,
+      getFallbackUrlForProxyResolve(account, repository)
+    ),
     expectedErrors: AuthenticationErrors,
   }
 
@@ -97,6 +104,7 @@ export async function checkoutBranch(
   )
 
   await git(args, repository.path, 'checkoutBranch', opts)
+
   // we return `true` here so `GitStore.performFailableGitOperation`
   // will return _something_ differentiable from `undefined` if this succeeds
   return true
@@ -111,5 +119,21 @@ export async function checkoutPaths(
     ['checkout', 'HEAD', '--', ...paths],
     repository.path,
     'checkoutPaths'
+  )
+}
+
+/**
+ * Check out either stage #2 (ours) or #3 (theirs) for a conflicted
+ * file.
+ */
+export async function checkoutConflictedFile(
+  repository: Repository,
+  file: WorkingDirectoryFileChange,
+  resolution: ManualConflictResolution
+) {
+  await git(
+    ['checkout', `--${resolution}`, '--', file.path],
+    repository.path,
+    'checkoutConflictedFile'
   )
 }

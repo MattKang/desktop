@@ -1,16 +1,24 @@
 import * as React from 'react'
 import { Dispatcher } from '../dispatcher'
-import { OcticonSymbol } from '../octicons'
+import * as OcticonSymbol from '../octicons/octicons.generated'
+import { syncClockwise } from '../octicons'
 import { Repository } from '../../models/repository'
 import { TipState } from '../../models/tip'
 import { ToolbarDropdown, DropdownState } from './dropdown'
-import { IRepositoryState, isRebaseConflictState } from '../../lib/app-state'
+import {
+  FoldoutType,
+  IRepositoryState,
+  isRebaseConflictState,
+} from '../../lib/app-state'
 import { BranchesContainer, PullRequestBadge } from '../branches'
 import { assertNever } from '../../lib/fatal-error'
 import { BranchesTab } from '../../models/branches-tab'
 import { PullRequest } from '../../models/pull-request'
-import * as classNames from 'classnames'
-import { UncommittedChangesStrategy } from '../../models/uncommitted-changes-strategy'
+import classNames from 'classnames'
+import { dragAndDropManager } from '../../lib/drag-and-drop-manager'
+import { DragType } from '../../models/drag-drop'
+import { CICheckRunPopover } from '../check-runs/ci-check-run-popover'
+import { TooltipTarget } from '../lib/tooltip'
 
 interface IBranchDropdownProps {
   readonly dispatcher: Dispatcher
@@ -47,20 +55,32 @@ interface IBranchDropdownProps {
   /** Whether this component should show its onboarding tutorial nudge arrow */
   readonly shouldNudge: boolean
 
-  readonly selectedUncommittedChangesStrategy: UncommittedChangesStrategy
+  readonly showCIStatusPopover: boolean
 
-  readonly couldOverwriteStash: boolean
+  /** Map from the emoji shortcut (e.g., :+1:) to the image's local path. */
+  readonly emoji: Map<string, string>
+}
+interface IBranchDropdownState {
+  readonly badgeBottom: number
 }
 
 /**
  * A drop down for selecting the currently checked out branch.
  */
-export class BranchDropdown extends React.Component<IBranchDropdownProps> {
+export class BranchDropdown extends React.Component<
+  IBranchDropdownProps,
+  IBranchDropdownState
+> {
+  public constructor(props: IBranchDropdownProps) {
+    super(props)
+    this.state = {
+      badgeBottom: 0,
+    }
+  }
+
   private renderBranchFoldout = (): JSX.Element | null => {
     const repositoryState = this.props.repositoryState
     const branchesState = repositoryState.branchesState
-    const currentBranchProtected =
-      repositoryState.changesState.currentBranchProtected
 
     const tip = repositoryState.branchesState.tip
     const currentBranch = tip.kind === TipState.Valid ? tip.branch : null
@@ -77,11 +97,7 @@ export class BranchDropdown extends React.Component<IBranchDropdownProps> {
         pullRequests={this.props.pullRequests}
         currentPullRequest={this.props.currentPullRequest}
         isLoadingPullRequests={this.props.isLoadingPullRequests}
-        currentBranchProtected={currentBranchProtected}
-        selectedUncommittedChangesStrategy={
-          this.props.selectedUncommittedChangesStrategy
-        }
-        couldOverwriteStash={this.props.couldOverwriteStash}
+        emoji={this.props.emoji}
       />
     )
   }
@@ -103,7 +119,7 @@ export class BranchDropdown extends React.Component<IBranchDropdownProps> {
 
     const tipKind = tip.kind
 
-    let icon = OcticonSymbol.gitBranch
+    let icon: OcticonSymbol.OcticonSymbolType = OcticonSymbol.gitBranch
     let iconClassName: string | undefined = undefined
     let title: string
     let description = __DARWIN__ ? 'Current Branch' : 'Current branch'
@@ -121,15 +137,16 @@ export class BranchDropdown extends React.Component<IBranchDropdownProps> {
     } else if (tip.kind === TipState.Unborn) {
       title = tip.ref
       tooltip = `Current branch is ${tip.ref}`
-      canOpen = branchesState.allBranches.length > 0
+      canOpen = branchesState.allBranches.some(
+        b => !b.isDesktopForkRemoteBranch
+      )
     } else if (tip.kind === TipState.Detached) {
-      title = `On ${tip.currentSha.substr(0, 7)}`
+      title = `On ${tip.currentSha.substring(0, 7)}`
       tooltip = 'Currently on a detached HEAD'
       icon = OcticonSymbol.gitCommit
       description = 'Detached HEAD'
     } else if (tip.kind === TipState.Valid) {
-      title = tip.branch.name
-      tooltip = `Current branch is ${title}`
+      title = tooltip = tip.branch.name
     } else {
       return assertNever(tip, `Unknown tip state: ${tipKind}`)
     }
@@ -142,11 +159,12 @@ export class BranchDropdown extends React.Component<IBranchDropdownProps> {
 
       if (checkoutProgress.value > 0) {
         const friendlyProgress = Math.round(checkoutProgress.value * 100)
-        description = `${description} (${friendlyProgress} %)`
+        description = `${description} (${friendlyProgress}%)`
       }
 
+      tooltip = `Switching to ${checkoutProgress.targetBranch}`
       progressValue = checkoutProgress.value
-      icon = OcticonSymbol.sync
+      icon = syncClockwise
       iconClassName = 'spin'
       canOpen = false
     } else if (conflictState !== null && isRebaseConflictState(conflictState)) {
@@ -155,6 +173,7 @@ export class BranchDropdown extends React.Component<IBranchDropdownProps> {
       icon = OcticonSymbol.gitBranch
       canOpen = false
       disabled = true
+      tooltip = `Rebasing ${conflictState.targetBranch}`
     }
 
     const isOpen = this.props.isOpen
@@ -164,31 +183,118 @@ export class BranchDropdown extends React.Component<IBranchDropdownProps> {
     })
 
     return (
-      <ToolbarDropdown
-        className="branch-button"
-        icon={icon}
-        iconClassName={iconClassName}
-        title={title}
-        description={description}
-        tooltip={tooltip}
-        onDropdownStateChanged={this.onDropDownStateChanged}
-        dropdownContentRenderer={this.renderBranchFoldout}
-        dropdownState={currentState}
-        disabled={disabled}
-        showDisclosureArrow={canOpen}
-        progressValue={progressValue}
-        buttonClassName={buttonClassName}
-      >
-        {this.renderPullRequestInfo()}
-      </ToolbarDropdown>
+      <>
+        <ToolbarDropdown
+          className="branch-button"
+          icon={icon}
+          iconClassName={iconClassName}
+          title={title}
+          description={description}
+          tooltip={isOpen ? undefined : tooltip}
+          onDropdownStateChanged={this.onDropDownStateChanged}
+          dropdownContentRenderer={this.renderBranchFoldout}
+          dropdownState={currentState}
+          disabled={disabled}
+          showDisclosureArrow={canOpen}
+          progressValue={progressValue}
+          buttonClassName={buttonClassName}
+          onMouseEnter={this.onMouseEnter}
+          onlyShowTooltipWhenOverflowed={true}
+          isOverflowed={isDescriptionOverflowed}
+        >
+          {this.renderPullRequestInfo()}
+        </ToolbarDropdown>
+        {this.props.showCIStatusPopover && this.renderPopover()}
+      </>
+    )
+  }
+
+  /**
+   * Method to capture when the mouse is over the branch dropdown button.
+   *
+   * We currently only use this in conjunction with dragging cherry picks so
+   * that we can open the branch menu when dragging a commit over it.
+   */
+  private onMouseEnter = (): void => {
+    if (dragAndDropManager.isDragOfTypeInProgress(DragType.Commit)) {
+      dragAndDropManager.emitEnterDragZone('branch-button')
+      this.props.dispatcher.showFoldout({ type: FoldoutType.Branch })
+    }
+  }
+
+  private onBadgeClick = () => {
+    // The badge can't be clicked while the CI status popover is shown, because
+    // in that case the Popover component will recognize the "click outside"
+    // event and close the popover.
+    this.props.dispatcher.closeFoldout(FoldoutType.Branch)
+    this.openPopover()
+  }
+
+  private updateBadgeBottomPosition = (badgeBottom: number) => {
+    this.setState({ badgeBottom })
+  }
+
+  private openPopover = () => {
+    this.props.dispatcher.setShowCIStatusPopover(true)
+  }
+
+  private closePopover = (event?: MouseEvent) => {
+    if (event === undefined) {
+      this.props.dispatcher.setShowCIStatusPopover(false)
+      return
+    }
+
+    const { target } = event
+    const prBadgeElem = document.getElementById('pr-badge')
+    const rerunDialog = document.getElementById('rerun-check-runs')
+    if (
+      target !== null &&
+      target instanceof Node &&
+      ((prBadgeElem !== null && prBadgeElem.contains(target)) ||
+        (rerunDialog !== null && rerunDialog.contains(target)))
+    ) {
+      return
+    }
+
+    this.props.dispatcher.setShowCIStatusPopover(false)
+  }
+
+  private renderPopover() {
+    const pr = this.props.currentPullRequest
+    const { tip } = this.props.repositoryState.branchesState
+    // This is used for retrieving the PR's action check runs (if exist). For
+    // forked repo PRs, we must use the upstreamWithoutRemote as we make are own
+    // temporary branch in Desktop for these that doesn't exist remotely (and
+    // thus doesn't exist in action's world). The upstreamWIthoutRemote will
+    // match a non forked PR. It _should_ only be null for a local branch..
+    // which _should_ not happen in this context. But, worst case, the user
+    // simply won't be able to retreive action steps and will get check run list
+    // items that are given for non-action checks.
+    const currentBranchName =
+      tip.kind === TipState.Valid
+        ? tip.branch.upstreamWithoutRemote ?? tip.branch.name
+        : ''
+
+    if (pr === null) {
+      return null
+    }
+
+    return (
+      <CICheckRunPopover
+        prNumber={pr.pullRequestNumber}
+        dispatcher={this.props.dispatcher}
+        repository={pr.base.gitHubRepository}
+        branchName={currentBranchName}
+        badgeBottom={this.state.badgeBottom}
+        closePopover={this.closePopover}
+      />
     )
   }
 
   private renderPullRequestInfo() {
     const pr = this.props.currentPullRequest
-    const repository = this.props.repository.gitHubRepository
 
-    if (pr === null || repository === null) {
+    if (pr === null) {
       return null
     }
 
@@ -196,8 +302,15 @@ export class BranchDropdown extends React.Component<IBranchDropdownProps> {
       <PullRequestBadge
         number={pr.pullRequestNumber}
         dispatcher={this.props.dispatcher}
-        repository={repository}
+        repository={pr.base.gitHubRepository}
+        onBadgeClick={this.onBadgeClick}
+        onBadgeBottomPositionUpdate={this.updateBadgeBottomPosition}
       />
     )
   }
+}
+
+const isDescriptionOverflowed = (target: TooltipTarget) => {
+  const elem = target.querySelector('.title') ?? target
+  return elem.scrollWidth > elem.clientWidth
 }
